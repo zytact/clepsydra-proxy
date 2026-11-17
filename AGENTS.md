@@ -3,7 +3,7 @@
 Go 1.26+ proxy server providing OpenAI/Gemini/Claude/Codex compatible APIs with OAuth and round-robin load balancing.
 
 ## Repository
-- GitHub: https://github.com/zytact/clepsydra and a fork of: https://github.com/router-for-me/CLIProxyAPI
+- GitHub: https://github.com/zytact/clepsydra-proxy and a fork of https://github.com/router-for-me/CLIProxyAPI
 - Any issue that is technically an upstream issue should be left alone. Not filed in this repo nor the upstream. Merely mention its existence.
 
 ## Commands
