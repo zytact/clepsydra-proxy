@@ -6,10 +6,12 @@ Everything CLIProxyAPI does, this does the same way. Request handling is untouch
 
 ## Set up
 
-1. Download `clepsydra-proxy_<version>_<os>_amd64` from [Releases](https://github.com/zytact/clepsydra-proxy/releases) and unpack it.
-2. Copy `config.example.yaml` to `config.yaml` next to the binary. Set `management.secret-key` to a password of your choice. The proxy hashes it on first start. Set `management.allow-remote: true` only if you will open the panel from another machine.
-3. Sign in your accounts, for example `./cli-proxy-api --claude-login` or `--codex-login`. Each login writes one auth file into `auth-dir`.
-4. Run `./cli-proxy-api` (`cli-proxy-api.exe` on Windows). It listens on `port` (8317 by default).
+1. Download `clepsydra-proxy_<version>_windows_amd64.zip` or `_linux_amd64.tar.gz` from [Releases](https://github.com/zytact/clepsydra-proxy/releases) and unpack it. Other platforms build from source with `go build -o cli-proxy-api ./cmd/server`.
+2. Copy `config.example.yaml` to `config.yaml` next to the binary and edit two things:
+   - `management.secret-key`: a password for the panel. The proxy hashes it on first start. Set `management.allow-remote: true` only if you will open the panel from another machine.
+   - `access.api-keys`: replace the `your-api-key-*` placeholders with your own keys. Clients send one of these to use the proxy, and the proxy listens on every interface by default.
+3. Sign in your accounts, for example `./cli-proxy-api --claude-login` or `--codex-login`. Each login writes one auth file into `oauth.auth-dir` (`~/.cli-proxy-api` by default). On a machine without a browser add `--no-browser` and see the [upstream README](https://github.com/router-for-me/CLIProxyAPI#readme).
+4. From that folder, run `./cli-proxy-api` (`cli-proxy-api.exe` on Windows), or pass `--config <path>`. It listens on `port` (8317 by default).
 5. Open `http://<host>:8317/management.html` and log in with the secret key. The proxy downloads the [Clepsydra](https://github.com/zytact/clepsydra) panel from its latest release on first visit and checks its sha256 digest.
 
 Quota history starts filling 30 seconds after start. The panel's quota page needs a day of it before "Usual" and the drain band have anything to show.
