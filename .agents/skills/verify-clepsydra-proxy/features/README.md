@@ -1,0 +1,11 @@
+# Feature map
+
+One file per user-facing behavior of clepsydra-proxy that verification drives. Each says how to reach it, how to drive it, and what proves it works.
+
+| Feature | File | Entry points |
+| --- | --- | --- |
+| Accounts | [accounts.md](accounts.md) | `GET /v8/management/credentials`, files in the auth dir |
+| Token refresh | [token-refresh.md](token-refresh.md) | The auto-refresh loop, `POST /v8/management/credentials/refresh` |
+| Release sources | [release-sources.md](release-sources.md) | `GET /v8/management/server/latest-version`, the management panel download |
+
+A proof covers every entry point its feature lists.
