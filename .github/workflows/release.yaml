@@ -2,7 +2,6 @@ name: release
 
 on:
   push:
-    # Fork releases only. Upstream tags pulled in by a merge must not publish.
     tags:
       - 'v*-clepsydra.*'
 
