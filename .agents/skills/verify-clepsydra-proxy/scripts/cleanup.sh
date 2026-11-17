@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Stops the instance launch.sh started and removes its run dir. Evidence in
-# ~/.cache/verify-clepsydra-proxy/evidence stays.
 set -uo pipefail
 STATE_DIR="${VERIFY_STATE_DIR:-/tmp/verify-clepsydra-proxy}"
 if [ -f "$STATE_DIR/proxy.pid" ]; then

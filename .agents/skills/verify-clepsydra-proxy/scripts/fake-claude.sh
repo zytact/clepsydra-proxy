@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Writes a fake Claude account into the isolated auth dir. Its tokens are
-# placeholders, so any upstream call is rejected; that is the point.
-#   fake-claude.sh <name> [--expired] [--offline]
-#   --expired  the access token expired an hour ago, so the proxy refreshes it
-#   --offline  routes the account through a closed local port, so every
-#              upstream dial fails the way it does before DNS is up
 set -euo pipefail
 STATE_DIR="${VERIFY_STATE_DIR:-/tmp/verify-clepsydra-proxy}"
 source "$STATE_DIR/session.env"

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Builds this checkout and starts an isolated proxy on its own port, config,
-# auth dir and management key. It never reads the user's real accounts.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../../.." && pwd)"
@@ -52,4 +50,4 @@ done
   echo "RUN_DIR='$STATE_DIR/run'"
   echo "AUTH_DIR='$STATE_DIR/run/auths'"
 } >"$STATE_DIR/session.env"
-echo "ready: http://127.0.0.1:$PORT  logs $STATE_DIR/proxy.out  history $STATE_DIR/run/quota-history"
+echo "ready: http://127.0.0.1:$PORT  logs $STATE_DIR/proxy.out"

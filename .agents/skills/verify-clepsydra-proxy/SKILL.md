@@ -9,7 +9,7 @@ The proxy is a Go HTTP server. Verification builds this checkout, runs it on `12
 
 **Never point this at the user's real accounts.** Do not copy files from `~/.cli-proxy-api` or `/mnt/c/Users/*/.cli-proxy-api`: two proxies refreshing the same OAuth tokens break both. Use `fake-claude.sh` for accounts. Its tokens are placeholders, so upstream rejects every call, which is enough to drive refresh and polling paths for real.
 
-The user's live proxies (Windows and Fedora) run released binaries. Swapping their binary needs the user's explicit approval each time. Read-only calls to the Windows one are fine with `CLIPROXY_MANAGEMENT_KEY` from `~/.secrets`; it bans an address after five wrong keys, so never guess a key.
+The user's live proxies run released binaries; `~/dotfiles/AGENTS.md` says where they run and how they are reached. Swapping their binary needs the user's explicit approval each time. Read-only calls to them use the user's management key; a proxy bans an address after five wrong keys, so never guess one.
 
 All commands run from the repo root. `$P` is `.agents/skills/verify-clepsydra-proxy/scripts`.
 
@@ -35,6 +35,8 @@ head -3 /tmp/verify-clepsydra-proxy/proxy.out
 Healthy: a base URL, a JSON config whose `server.port` is 18317, and the startup lines `CLIProxyAPI Version: dev` and `API server started successfully on: 127.0.0.1:18317`.
 
 ## Drive
+
+`api.sh <METHOD> <path under /v8/management> [curl args...]` calls the instance with its own key. `fake-claude.sh <name> [--expired] [--offline]` writes a fake Claude account: `--expired` sets the access token to have expired an hour ago, and `--offline` routes the account through a closed local port so every upstream dial fails, as it does before DNS is up.
 
 ```bash
 $P/api.sh GET /credentials                      # accounts the instance holds
