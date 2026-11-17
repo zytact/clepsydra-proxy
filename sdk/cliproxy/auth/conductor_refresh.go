@@ -1491,6 +1491,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 				m.mu.Unlock()
 				return nil, err
 			}
+			offlineRefreshes.settle(current.ID, err)
 			terminalRefresh := isTerminalRefreshError(current, err)
 			sanitizedRefreshErr := sanitizeRenewalError(current, err)
 			wasTerminalUnauthorized := hasUnauthorizedAuthFailure(current)
@@ -1623,8 +1624,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 					current.StatusMessage = "invalid grant (retrying)"
 					shouldReschedule = true
 				} else {
-					current.RefreshFailures = 0
-					current.NextRefreshAfter = now.Add(refreshFailureBackoff)
+					current.RefreshFailures, current.NextRefreshAfter = 0, offlineRefreshes.next(current.ID, now, err)
 					current.StatusMessage = "token expired"
 					shouldReschedule = true
 				}
@@ -1693,6 +1693,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 	}
 	updated.LastRefreshedAt = now
 	updated.NextRefreshAfter = time.Time{}
+	offlineRefreshes.forget(updated.ID)
 	applyPreservedRenewalState(base, updated, updateModeRefresh, now)
 	if authHasUnchangedRejectedRefreshToken(updated) {
 		if exp, okExp := updated.AccessTokenExpirationTime(); okExp && !exp.IsZero() && exp.After(now) {
