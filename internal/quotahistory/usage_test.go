@@ -94,13 +94,13 @@ func TestParseCodexUsageCountsAReachedLimitAsFull(t *testing.T) {
 	}
 }
 
-func TestParseCodexUsageLeavesTheOtherWindowAloneWhenOneExplainsTheLimit(t *testing.T) {
-	body := []byte(`{"rate_limit": {"limit_reached": true, "primary_window": {"used_percent": 100, "limit_window_seconds": 18000}, "secondary_window": {"limit_window_seconds": 604800}}}`)
+func TestParseCodexUsageInfersAFullWindowOnlyWhenNoneReportsUsage(t *testing.T) {
+	body := []byte(`{"rate_limit": {"limit_reached": true, "primary_window": {"used_percent": 99.6, "limit_window_seconds": 18000}, "secondary_window": {"limit_window_seconds": 604800}}}`)
 	windows, errParse := parseCodexUsage(body, time.Now())
 	if errParse != nil {
 		t.Fatal(errParse)
 	}
-	if len(windows) != 1 || windows[0].ID != "five-hour" || windows[0].UsedPercent != 100 {
+	if len(windows) != 1 || windows[0].ID != "five-hour" || windows[0].UsedPercent != 99.6 {
 		t.Fatalf("windows = %+v", windows)
 	}
 }
