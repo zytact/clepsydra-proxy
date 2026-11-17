@@ -26,6 +26,12 @@ func (l *offlineRefreshLadder) next(id string, now time.Time, err error) time.Ti
 	return now.Add(min(networkRefreshRetry<<min(l.failures[id]-1, 5), refreshFailureBackoff))
 }
 
+func (l *offlineRefreshLadder) settle(id string, err error) {
+	if !isPreConnectError(err) {
+		l.forget(id)
+	}
+}
+
 func (l *offlineRefreshLadder) forget(id string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

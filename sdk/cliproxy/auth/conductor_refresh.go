@@ -1491,6 +1491,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 				m.mu.Unlock()
 				return nil, err
 			}
+			offlineRefreshes.settle(current.ID, err)
 			terminalRefresh := isTerminalRefreshError(current, err)
 			sanitizedRefreshErr := sanitizeRenewalError(current, err)
 			wasTerminalUnauthorized := hasUnauthorizedAuthFailure(current)

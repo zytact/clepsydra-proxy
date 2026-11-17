@@ -109,3 +109,57 @@ func TestIsPreConnectError_SeesADialInsideASocksConnect(t *testing.T) {
 		t.Fatal("a joined pair of offline partition errors should count as offline")
 	}
 }
+
+type flakyNetworkRefreshExecutor struct {
+	schedulerProviderTestExecutor
+	offline *bool
+}
+
+func (e flakyNetworkRefreshExecutor) Refresh(ctx context.Context, auth *Auth) (*Auth, error) {
+	if *e.offline {
+		return offlineRefreshTestExecutor{}.Refresh(ctx, auth)
+	}
+	updated := auth.Clone()
+	updated.Metadata["access_token"] = "fresh-access-token"
+	updated.Metadata["expired"] = time.Now().Add(-time.Minute).Format(time.RFC3339)
+	return updated, nil
+}
+
+func TestManager_RefreshAuthOffline_SuccessStartsTheLadderOver(t *testing.T) {
+	ctx := context.Background()
+	offline := true
+	manager := NewManager(nil, &RoundRobinSelector{}, nil)
+	manager.RegisterExecutor(flakyNetworkRefreshExecutor{
+		schedulerProviderTestExecutor: schedulerProviderTestExecutor{provider: "claude"},
+		offline:                       &offline,
+	})
+	auth := &Auth{
+		ID:       "offline-refresh-success-resets",
+		Provider: "claude",
+		Status:   StatusActive,
+		Metadata: map[string]any{
+			"email":         "offline@example.com",
+			"access_token":  "expired-access-token",
+			"refresh_token": "refresh-token",
+			"expired":       time.Now().Add(-8 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	if _, errRegister := manager.Register(ctx, auth); errRegister != nil {
+		t.Fatalf("register auth: %v", errRegister)
+	}
+	manager.refreshAuth(ctx, auth.ID)
+	manager.refreshAuth(ctx, auth.ID)
+	offline = false
+	manager.refreshAuth(ctx, auth.ID)
+	offline = true
+	before := time.Now()
+	manager.refreshAuth(ctx, auth.ID)
+
+	updated, ok := manager.GetByID(auth.ID)
+	if !ok {
+		t.Fatalf("expected auth %q after refresh", auth.ID)
+	}
+	if limit := before.Add(networkRefreshRetry + 5*time.Second); updated.NextRefreshAfter.After(limit) {
+		t.Fatalf("NextRefreshAfter = %s, want the first rung by %s after a successful refresh", updated.NextRefreshAfter, limit)
+	}
+}
