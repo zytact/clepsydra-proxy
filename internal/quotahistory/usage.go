@@ -127,6 +127,19 @@ type codexRateLimit struct {
 	Allowed         *bool        `json:"allowed"`
 }
 
+func (limit codexRateLimit) reached() bool {
+	return limit.LimitReached || (limit.Allowed != nil && !*limit.Allowed)
+}
+
+func anyWindowFull(windows []*codexWindow) bool {
+	for _, window := range windows {
+		if window != nil && window.UsedPercent != nil && *window.UsedPercent >= 100 {
+			return true
+		}
+	}
+	return false
+}
+
 type codexUsage struct {
 	RateLimit *codexRateLimit `json:"rate_limit"`
 }
@@ -139,9 +152,11 @@ func parseCodexUsage(body []byte, now time.Time) ([]Window, error) {
 	if usage.RateLimit == nil {
 		return []Window{}, nil
 	}
+	candidates := []*codexWindow{usage.RateLimit.PrimaryWindow, usage.RateLimit.SecondaryWindow}
+	unexplainedLimit := usage.RateLimit.reached() && !anyWindowFull(candidates)
 	windows := []Window{}
 	seen := map[string]bool{}
-	for position, window := range []*codexWindow{usage.RateLimit.PrimaryWindow, usage.RateLimit.SecondaryWindow} {
+	for position, window := range candidates {
 		if window == nil {
 			continue
 		}
@@ -149,7 +164,7 @@ func parseCodexUsage(body []byte, now time.Time) ([]Window, error) {
 		switch {
 		case window.UsedPercent != nil:
 			used = *window.UsedPercent
-		case usage.RateLimit.LimitReached || (usage.RateLimit.Allowed != nil && !*usage.RateLimit.Allowed):
+		case unexplainedLimit:
 			used = 100
 		default:
 			continue

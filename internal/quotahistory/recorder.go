@@ -136,7 +136,7 @@ func (r *Recorder) read(ctx context.Context, account *auth.Auth, source usageSou
 }
 
 func (r *Recorder) fetch(ctx context.Context, account *auth.Auth, source usageSource) ([]byte, error) {
-	token := strings.TrimSpace(account.CurrentAccessToken())
+	token := account.CurrentAccessToken()
 	if token == "" {
 		return nil, fmt.Errorf("no access token")
 	}
