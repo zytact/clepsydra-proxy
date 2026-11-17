@@ -1623,7 +1623,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 					current.StatusMessage = "invalid grant (retrying)"
 					shouldReschedule = true
 				} else {
-					current.RefreshFailures, current.NextRefreshAfter = expiredTokenRefreshRetry(now, err, current.RefreshFailures)
+					current.RefreshFailures, current.NextRefreshAfter = 0, offlineRefreshes.next(current.ID, now, err)
 					current.StatusMessage = "token expired"
 					shouldReschedule = true
 				}

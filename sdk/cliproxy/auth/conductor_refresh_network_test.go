@@ -54,15 +54,15 @@ func TestManager_RefreshAuthOffline_ExpiredTokenRetriesSoon(t *testing.T) {
 	}
 }
 
-func TestExpiredTokenRefreshRetry_BacksOffWhileOfflineAndResetsOnOtherErrors(t *testing.T) {
-	now := time.Now()
+func TestOfflineRefreshLadder_BacksOffWhileOfflineAndResetsOnOtherErrors(t *testing.T) {
+	ladder := &offlineRefreshLadder{streaks: map[string]offlineStreak{}}
 	offline := &net.OpError{Op: "proxyconnect", Net: "tcp", Err: fmt.Errorf("connection refused")}
-	failures := 0
+	now := time.Now()
 	var delays []time.Duration
 	for range 7 {
-		var at time.Time
-		failures, at = expiredTokenRefreshRetry(now, offline, failures)
+		at := ladder.next("a", now, offline)
 		delays = append(delays, at.Sub(now))
+		now = at
 	}
 	want := []time.Duration{15 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute, 4 * time.Minute, refreshFailureBackoff, refreshFailureBackoff}
 	for i := range want {
@@ -70,8 +70,34 @@ func TestExpiredTokenRefreshRetry_BacksOffWhileOfflineAndResetsOnOtherErrors(t *
 			t.Fatalf("delays = %v, want %v", delays, want)
 		}
 	}
-	failures, at := expiredTokenRefreshRetry(now, fmt.Errorf("upstream 503 service unavailable"), failures)
-	if failures != 0 || !at.Equal(now.Add(refreshFailureBackoff)) {
-		t.Fatalf("failures = %d, retry at = %s", failures, at)
+	if at := ladder.next("a", now, fmt.Errorf("upstream 503 service unavailable")); !at.Equal(now.Add(refreshFailureBackoff)) {
+		t.Fatalf("retry at = %s after a non-network error", at)
+	}
+	if at := ladder.next("a", now, offline); !at.Equal(now.Add(networkRefreshRetry)) {
+		t.Fatalf("retry at = %s, want a fresh ladder after the streak ended", at)
+	}
+}
+
+func TestOfflineRefreshLadder_StartsOverAfterAQuietGap(t *testing.T) {
+	ladder := &offlineRefreshLadder{streaks: map[string]offlineStreak{}}
+	offline := &net.DNSError{Err: "no such host", Name: "platform.claude.com", IsNotFound: true}
+	now := time.Now()
+	ladder.next("a", now, offline)
+	ladder.next("a", now.Add(networkRefreshRetry), offline)
+	later := now.Add(time.Hour)
+	if at := ladder.next("a", later, offline); !at.Equal(later.Add(networkRefreshRetry)) {
+		t.Fatalf("retry at = %s, want the first rung after a new outage", at)
+	}
+}
+
+func TestIsPreConnectError_SeesADialInsideASocksConnect(t *testing.T) {
+	refused := &net.OpError{Op: "dial", Net: "tcp", Err: fmt.Errorf("connection refused")}
+	socks := &net.OpError{Op: "socks connect", Net: "tcp", Err: refused}
+	if !isPreConnectError(fmt.Errorf("token refresh request failed: %w", socks)) {
+		t.Fatal("a refused dial to a SOCKS proxy should count as offline")
+	}
+	handshake := &net.OpError{Op: "socks connect", Net: "tcp", Err: fmt.Errorf("unknown error general SOCKS server failure")}
+	if isPreConnectError(handshake) {
+		t.Fatal("a SOCKS handshake failure is not a pre-connect error")
 	}
 }

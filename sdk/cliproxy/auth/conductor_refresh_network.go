@@ -3,25 +3,51 @@ package auth
 import (
 	"errors"
 	"net"
+	"sync"
 	"time"
 )
 
 const networkRefreshRetry = 15 * time.Second
 
-func expiredTokenRefreshRetry(now time.Time, err error, failures int) (int, time.Time) {
+type offlineStreak struct {
+	failures int
+	lastAt   time.Time
+	delay    time.Duration
+}
+
+type offlineRefreshLadder struct {
+	mu      sync.Mutex
+	streaks map[string]offlineStreak
+}
+
+var offlineRefreshes = &offlineRefreshLadder{streaks: map[string]offlineStreak{}}
+
+func (l *offlineRefreshLadder) next(id string, now time.Time, err error) time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if !isPreConnectError(err) {
-		return 0, now.Add(refreshFailureBackoff)
+		delete(l.streaks, id)
+		return now.Add(refreshFailureBackoff)
 	}
-	failures++
-	delay := min(networkRefreshRetry<<min(failures-1, 5), refreshFailureBackoff)
-	return failures, now.Add(delay)
+	streak := l.streaks[id]
+	if streak.failures > 0 && now.Sub(streak.lastAt) > streak.delay+networkRefreshRetry {
+		streak = offlineStreak{}
+	}
+	streak.failures++
+	streak.delay = min(networkRefreshRetry<<min(streak.failures-1, 5), refreshFailureBackoff)
+	streak.lastAt = now
+	l.streaks[id] = streak
+	return now.Add(streak.delay)
 }
 
 func isPreConnectError(err error) bool {
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return true
+	for ; err != nil; err = errors.Unwrap(err) {
+		if _, ok := err.(*net.DNSError); ok {
+			return true
+		}
+		if opErr, ok := err.(*net.OpError); ok && (opErr.Op == "dial" || opErr.Op == "proxyconnect") {
+			return true
+		}
 	}
-	var opErr *net.OpError
-	return errors.As(err, &opErr) && (opErr.Op == "dial" || opErr.Op == "proxyconnect")
+	return false
 }
