@@ -26,7 +26,7 @@ type Window struct {
 	UsedPercent   float64    `json:"used_percent"`
 	ResetsAt      *time.Time `json:"resets_at,omitempty"`
 	WindowSeconds int64      `json:"window_seconds,omitempty"`
-	Scope         string     `json:"scope"`
+	Scope         Scope      `json:"scope"`
 }
 type Reading struct {
 	At        time.Time `json:"at"`

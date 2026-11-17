@@ -23,6 +23,35 @@ const (
 	codexUsageURL  = "https://chatgpt.com/backend-api/wham/usage"
 )
 
+type usageSource struct {
+	url     string
+	headers func(account *auth.Auth, header http.Header)
+	parse   func(body []byte, now time.Time) ([]Window, error)
+}
+
+func defaultSources() map[string]usageSource {
+	return map[string]usageSource{
+		"claude": {
+			url: claudeUsageURL,
+			headers: func(_ *auth.Auth, header http.Header) {
+				header.Set("anthropic-beta", "oauth-2025-04-20")
+				header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
+			},
+			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseClaudeUsage(body) },
+		},
+		"codex": {
+			url: codexUsageURL,
+			headers: func(account *auth.Auth, header http.Header) {
+				header.Set("User-Agent", "codex_cli_rs")
+				if accountID := metadataString(account, "account_id"); accountID != "" {
+					header.Set("Chatgpt-Account-Id", accountID)
+				}
+			},
+			parse: parseCodexUsage,
+		},
+	}
+}
+
 type AuthLister interface {
 	List() []*auth.Auth
 }
@@ -32,7 +61,7 @@ type Recorder struct {
 	store       *Store
 	globalProxy func() string
 	now         func() time.Time
-	urls        map[string]string
+	sources     map[string]usageSource
 }
 
 func NewRecorder(auths AuthLister, store *Store, globalProxy func() string) *Recorder {
@@ -41,7 +70,7 @@ func NewRecorder(auths AuthLister, store *Store, globalProxy func() string) *Rec
 		store:       store,
 		globalProxy: globalProxy,
 		now:         time.Now,
-		urls:        map[string]string{"claude": claudeUsageURL, "codex": codexUsageURL},
+		sources:     defaultSources(),
 	}
 }
 
@@ -62,10 +91,14 @@ func (r *Recorder) Run(ctx context.Context) {
 func (r *Recorder) Poll(ctx context.Context) {
 	readings := []Reading{}
 	for _, account := range r.auths.List() {
-		if account == nil || account.Disabled || r.urls[account.Provider] == "" {
+		if account == nil || account.Disabled {
 			continue
 		}
-		readings = append(readings, r.read(ctx, account))
+		source, ok := r.sources[account.Provider]
+		if !ok {
+			continue
+		}
+		readings = append(readings, r.read(ctx, account, source))
 	}
 	if ctx.Err() != nil {
 		return
@@ -80,7 +113,7 @@ func (r *Recorder) Poll(ctx context.Context) {
 	}
 }
 
-func (r *Recorder) read(ctx context.Context, account *auth.Auth) Reading {
+func (r *Recorder) read(ctx context.Context, account *auth.Auth, source usageSource) Reading {
 	reading := Reading{
 		At:        r.now().UTC(),
 		Provider:  account.Provider,
@@ -88,18 +121,12 @@ func (r *Recorder) read(ctx context.Context, account *auth.Auth) Reading {
 		AuthIndex: account.EnsureIndex(),
 		Email:     metadataString(account, "email"),
 	}
-	body, errFetch := r.fetch(ctx, account)
+	body, errFetch := r.fetch(ctx, account, source)
 	if errFetch != nil {
 		reading.Error = errFetch.Error()
 		return reading
 	}
-	var windows []Window
-	var errParse error
-	if account.Provider == "claude" {
-		windows, errParse = parseClaudeUsage(body)
-	} else {
-		windows, errParse = parseCodexUsage(body, reading.At)
-	}
+	windows, errParse := source.parse(body, reading.At)
 	if errParse != nil {
 		reading.Error = "unexpected usage response"
 		return reading
@@ -108,36 +135,28 @@ func (r *Recorder) read(ctx context.Context, account *auth.Auth) Reading {
 	return reading
 }
 
-func (r *Recorder) fetch(ctx context.Context, account *auth.Auth) ([]byte, error) {
-	token := metadataString(account, "access_token")
+func (r *Recorder) fetch(ctx context.Context, account *auth.Auth, source usageSource) ([]byte, error) {
+	token := strings.TrimSpace(account.CurrentAccessToken())
 	if token == "" {
 		return nil, fmt.Errorf("no access token")
 	}
-	if expiry, ok := account.ExpirationTime(); ok && !expiry.IsZero() && !expiry.After(r.now()) {
+	if expiry, ok := account.AccessTokenExpirationTime(); ok && !expiry.IsZero() && !expiry.After(r.now()) {
 		return nil, fmt.Errorf("access token expired")
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	request, errRequest := http.NewRequestWithContext(requestCtx, http.MethodGet, r.urls[account.Provider], nil)
+	request, errRequest := http.NewRequestWithContext(requestCtx, http.MethodGet, source.url, nil)
 	if errRequest != nil {
 		return nil, fmt.Errorf("build usage request: %w", errRequest)
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Accept", "application/json")
-	if account.Provider == "claude" {
-		request.Header.Set("anthropic-beta", "oauth-2025-04-20")
-		request.Header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
-	} else {
-		request.Header.Set("User-Agent", "codex_cli_rs")
-		if accountID := metadataString(account, "account_id"); accountID != "" {
-			request.Header.Set("Chatgpt-Account-Id", accountID)
-		}
-	}
+	source.headers(account, request.Header)
 	transport := r.transport(account)
 	defer transport.CloseIdleConnections()
 	response, errDo := (&http.Client{Transport: transport}).Do(request)
 	if errDo != nil {
-		return nil, fmt.Errorf("usage request failed")
+		return nil, fmt.Errorf("usage request failed: %w", errDo)
 	}
 	defer func() {
 		if errClose := response.Body.Close(); errClose != nil {
@@ -146,7 +165,7 @@ func (r *Recorder) fetch(ctx context.Context, account *auth.Auth) ([]byte, error
 	}()
 	body, errRead := io.ReadAll(io.LimitReader(response.Body, maxBodyBytes))
 	if errRead != nil {
-		return nil, fmt.Errorf("read usage response failed")
+		return nil, fmt.Errorf("read usage response: %w", errRead)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, fmt.Errorf("usage request returned status %d", response.StatusCode)

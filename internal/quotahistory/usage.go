@@ -10,9 +10,11 @@ import (
 	"github.com/MoeForge/moego/json"
 )
 
+type Scope string
+
 const (
-	ScopeAll   = "all"
-	ScopeModel = "model"
+	ScopeAll   Scope = "all"
+	ScopeModel Scope = "model"
 
 	fiveHourSeconds = int64(5 * 3600)
 	weekSeconds     = int64(7 * 24 * 3600)
@@ -21,8 +23,15 @@ const (
 )
 
 type claudeWindow struct {
-	Utilization *float64 `json:"utilization"`
-	ResetsAt    *string  `json:"resets_at"`
+	Utilization      *float64 `json:"utilization"`
+	ResetsAt         *string  `json:"resets_at"`
+	LimitDollars     *float64 `json:"limit_dollars"`
+	UsedDollars      *float64 `json:"used_dollars"`
+	RemainingDollars *float64 `json:"remaining_dollars"`
+}
+
+func (w *claudeWindow) dollarDenominated() bool {
+	return w.LimitDollars != nil || w.UsedDollars != nil || w.RemainingDollars != nil
 }
 
 type claudeLimit struct {
@@ -57,7 +66,7 @@ func parseClaudeUsage(body []byte) ([]Window, error) {
 		return nil, fmt.Errorf("claude usage has no five_hour or seven_day window")
 	}
 	windows := []Window{}
-	add := func(id string, window *claudeWindow, seconds int64, scope string) {
+	add := func(id string, window *claudeWindow, seconds int64, scope Scope) {
 		if window == nil || window.Utilization == nil {
 			return
 		}
@@ -75,9 +84,9 @@ func parseClaudeUsage(body []byte) ([]Window, error) {
 	add("seven-day-opus", usage.SevenDayOpus, weekSeconds, ScopeModel)
 	add("seven-day-sonnet", usage.SevenDaySonnet, weekSeconds, ScopeModel)
 	add("seven-day-cowork", usage.SevenDayCowork, weekSeconds, ScopeModel)
-	fable := usage.SevenDayFable
-	if fable == nil || fable.Utilization == nil {
-		fable = fableLimit(usage.Limits)
+	fable := fableLimit(usage.Limits)
+	if fable == nil && usage.SevenDayFable != nil && !usage.SevenDayFable.dollarDenominated() {
+		fable = usage.SevenDayFable
 	}
 	add("seven-day-fable", fable, weekSeconds, ScopeModel)
 	return windows, nil
@@ -114,6 +123,8 @@ type codexWindow struct {
 type codexRateLimit struct {
 	PrimaryWindow   *codexWindow `json:"primary_window"`
 	SecondaryWindow *codexWindow `json:"secondary_window"`
+	LimitReached    bool         `json:"limit_reached"`
+	Allowed         *bool        `json:"allowed"`
 }
 
 type codexUsage struct {
@@ -131,7 +142,16 @@ func parseCodexUsage(body []byte, now time.Time) ([]Window, error) {
 	windows := []Window{}
 	seen := map[string]bool{}
 	for position, window := range []*codexWindow{usage.RateLimit.PrimaryWindow, usage.RateLimit.SecondaryWindow} {
-		if window == nil || window.UsedPercent == nil {
+		if window == nil {
+			continue
+		}
+		used := 0.0
+		switch {
+		case window.UsedPercent != nil:
+			used = *window.UsedPercent
+		case usage.RateLimit.LimitReached || (usage.RateLimit.Allowed != nil && !*usage.RateLimit.Allowed):
+			used = 100
+		default:
 			continue
 		}
 		seconds := int64(0)
@@ -145,7 +165,7 @@ func parseCodexUsage(body []byte, now time.Time) ([]Window, error) {
 		seen[id] = true
 		windows = append(windows, Window{
 			ID:            id,
-			UsedPercent:   clampPercent(*window.UsedPercent),
+			UsedPercent:   clampPercent(used),
 			ResetsAt:      codexReset(window, now),
 			WindowSeconds: seconds,
 			Scope:         ScopeAll,

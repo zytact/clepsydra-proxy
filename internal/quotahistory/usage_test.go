@@ -23,7 +23,7 @@ func TestParseClaudeUsageKeepsWindowsAndScopes(t *testing.T) {
 	want := []struct {
 		id    string
 		used  float64
-		scope string
+		scope Scope
 	}{{"five-hour", 7, ScopeAll}, {"seven-day", 100, ScopeAll}, {"seven-day-fable", 40, ScopeModel}}
 	if len(windows) != len(want) {
 		t.Fatalf("windows = %+v", windows)
@@ -64,5 +64,32 @@ func TestParseCodexUsageNamesWindowsByDuration(t *testing.T) {
 	}
 	if !windows[1].ResetsAt.Equal(now.Add(10 * time.Minute)) {
 		t.Fatalf("five-hour reset = %s", windows[1].ResetsAt)
+	}
+}
+
+func TestParseClaudeUsageKeepsTheCreditPoolOutOfFable(t *testing.T) {
+	body := []byte(`{
+		"five_hour": {"utilization": 1, "resets_at": null},
+		"iguana_necktie": {"utilization": 60, "resets_at": null, "limit_dollars": 50, "used_dollars": 30}
+	}`)
+	windows, errParse := parseClaudeUsage(body)
+	if errParse != nil {
+		t.Fatal(errParse)
+	}
+	for _, window := range windows {
+		if window.ID == "seven-day-fable" {
+			t.Fatalf("credit pool recorded as Fable: %+v", window)
+		}
+	}
+}
+
+func TestParseCodexUsageCountsAReachedLimitAsFull(t *testing.T) {
+	body := []byte(`{"rate_limit": {"limit_reached": true, "primary_window": {"limit_window_seconds": 18000, "reset_after_seconds": 60}}}`)
+	windows, errParse := parseCodexUsage(body, time.Now())
+	if errParse != nil {
+		t.Fatal(errParse)
+	}
+	if len(windows) != 1 || windows[0].UsedPercent != 100 {
+		t.Fatalf("windows = %+v", windows)
 	}
 }

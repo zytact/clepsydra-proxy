@@ -14,6 +14,17 @@ type staticAuths []*auth.Auth
 
 func (s staticAuths) List() []*auth.Auth { return s }
 
+func withURLs(urls map[string]string) map[string]usageSource {
+	sources := map[string]usageSource{}
+	for provider, source := range defaultSources() {
+		if url, ok := urls[provider]; ok {
+			source.url = url
+			sources[provider] = source
+		}
+	}
+	return sources
+}
+
 func TestPollRecordsEachEnabledAccount(t *testing.T) {
 	var gotAuthorization string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +46,7 @@ func TestPollRecordsEachEnabledAccount(t *testing.T) {
 		{ID: "gemini.json", Provider: "gemini", Metadata: map[string]any{"access_token": "token-d"}},
 	}, store, func() string { return "" })
 	recorder.now = func() time.Time { return now }
-	recorder.urls = map[string]string{"claude": server.URL, "codex": limited.URL}
+	recorder.sources = withURLs(map[string]string{"claude": server.URL, "codex": limited.URL})
 
 	recorder.Poll(context.Background())
 
@@ -73,7 +84,7 @@ func TestPollRecordsExpiredTokenWithoutRequest(t *testing.T) {
 		Metadata: map[string]any{"access_token": "old", "expired": now.Add(-time.Hour).Format(time.RFC3339)},
 	}}, store, func() string { return "" })
 	recorder.now = func() time.Time { return now }
-	recorder.urls = map[string]string{"claude": server.URL}
+	recorder.sources = withURLs(map[string]string{"claude": server.URL})
 
 	recorder.Poll(context.Background())
 
