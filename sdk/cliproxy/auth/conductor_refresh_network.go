@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"errors"
 	"net"
 	"sync"
 	"time"
@@ -9,44 +8,49 @@ import (
 
 const networkRefreshRetry = 15 * time.Second
 
-type offlineStreak struct {
-	failures int
-	lastAt   time.Time
-	delay    time.Duration
-}
-
 type offlineRefreshLadder struct {
-	mu      sync.Mutex
-	streaks map[string]offlineStreak
+	mu       sync.Mutex
+	failures map[string]int
 }
 
-var offlineRefreshes = &offlineRefreshLadder{streaks: map[string]offlineStreak{}}
+var offlineRefreshes = &offlineRefreshLadder{failures: map[string]int{}}
 
 func (l *offlineRefreshLadder) next(id string, now time.Time, err error) time.Time {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if !isPreConnectError(err) {
-		delete(l.streaks, id)
+		delete(l.failures, id)
 		return now.Add(refreshFailureBackoff)
 	}
-	streak := l.streaks[id]
-	if streak.failures > 0 && now.Sub(streak.lastAt) > streak.delay+networkRefreshRetry {
-		streak = offlineStreak{}
-	}
-	streak.failures++
-	streak.delay = min(networkRefreshRetry<<min(streak.failures-1, 5), refreshFailureBackoff)
-	streak.lastAt = now
-	l.streaks[id] = streak
-	return now.Add(streak.delay)
+	l.failures[id]++
+	return now.Add(min(networkRefreshRetry<<min(l.failures[id]-1, 5), refreshFailureBackoff))
+}
+
+func (l *offlineRefreshLadder) forget(id string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.failures, id)
 }
 
 func isPreConnectError(err error) bool {
-	for ; err != nil; err = errors.Unwrap(err) {
-		if _, ok := err.(*net.DNSError); ok {
+	switch e := err.(type) {
+	case nil:
+		return false
+	case *net.DNSError:
+		return true
+	case *net.OpError:
+		if e.Op == "dial" || e.Op == "proxyconnect" {
 			return true
 		}
-		if opErr, ok := err.(*net.OpError); ok && (opErr.Op == "dial" || opErr.Op == "proxyconnect") {
-			return true
+	}
+	switch wrapped := err.(type) {
+	case interface{ Unwrap() error }:
+		return isPreConnectError(wrapped.Unwrap())
+	case interface{ Unwrap() []error }:
+		for _, inner := range wrapped.Unwrap() {
+			if isPreConnectError(inner) {
+				return true
+			}
 		}
 	}
 	return false

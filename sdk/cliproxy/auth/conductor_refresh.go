@@ -1692,6 +1692,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 	}
 	updated.LastRefreshedAt = now
 	updated.NextRefreshAfter = time.Time{}
+	offlineRefreshes.forget(updated.ID)
 	applyPreservedRenewalState(base, updated, updateModeRefresh, now)
 	if authHasUnchangedRejectedRefreshToken(updated) {
 		if exp, okExp := updated.AccessTokenExpirationTime(); okExp && !exp.IsZero() && exp.After(now) {

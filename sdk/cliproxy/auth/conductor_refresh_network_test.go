@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -55,7 +56,7 @@ func TestManager_RefreshAuthOffline_ExpiredTokenRetriesSoon(t *testing.T) {
 }
 
 func TestOfflineRefreshLadder_BacksOffWhileOfflineAndResetsOnOtherErrors(t *testing.T) {
-	ladder := &offlineRefreshLadder{streaks: map[string]offlineStreak{}}
+	ladder := &offlineRefreshLadder{failures: map[string]int{}}
 	offline := &net.OpError{Op: "proxyconnect", Net: "tcp", Err: fmt.Errorf("connection refused")}
 	now := time.Now()
 	var delays []time.Duration
@@ -78,15 +79,18 @@ func TestOfflineRefreshLadder_BacksOffWhileOfflineAndResetsOnOtherErrors(t *test
 	}
 }
 
-func TestOfflineRefreshLadder_StartsOverAfterAQuietGap(t *testing.T) {
-	ladder := &offlineRefreshLadder{streaks: map[string]offlineStreak{}}
-	offline := &net.DNSError{Err: "no such host", Name: "platform.claude.com", IsNotFound: true}
+func TestOfflineRefreshLadder_KeepsClimbingThroughSlowFailuresAndStartsOverAfterSuccess(t *testing.T) {
+	ladder := &offlineRefreshLadder{failures: map[string]int{}}
+	offline := &net.DNSError{Err: "i/o timeout", Name: "platform.claude.com", IsTimeout: true}
 	now := time.Now()
 	ladder.next("a", now, offline)
-	ladder.next("a", now.Add(networkRefreshRetry), offline)
-	later := now.Add(time.Hour)
-	if at := ladder.next("a", later, offline); !at.Equal(later.Add(networkRefreshRetry)) {
-		t.Fatalf("retry at = %s, want the first rung after a new outage", at)
+	now = now.Add(2 * time.Minute)
+	if at := ladder.next("a", now, offline); !at.Equal(now.Add(2 * networkRefreshRetry)) {
+		t.Fatalf("retry at = %s, want the second rung after a slow failure", at)
+	}
+	ladder.forget("a")
+	if at := ladder.next("a", now, offline); !at.Equal(now.Add(networkRefreshRetry)) {
+		t.Fatalf("retry at = %s, want the first rung after a successful refresh", at)
 	}
 }
 
@@ -99,5 +103,9 @@ func TestIsPreConnectError_SeesADialInsideASocksConnect(t *testing.T) {
 	handshake := &net.OpError{Op: "socks connect", Net: "tcp", Err: fmt.Errorf("unknown error general SOCKS server failure")}
 	if isPreConnectError(handshake) {
 		t.Fatal("a SOCKS handshake failure is not a pre-connect error")
+	}
+	joined := errors.Join(fmt.Errorf("outer: %w", &net.DNSError{Err: "no such host", IsNotFound: true}), fmt.Errorf("siwc: %w", refused))
+	if !isPreConnectError(fmt.Errorf("refresh failed: %w", joined)) {
+		t.Fatal("a joined pair of offline partition errors should count as offline")
 	}
 }
