@@ -70,7 +70,6 @@ docker-compose.override.yml
 # Local LLM Wiki vault
 .llm-wiki
 
-# Repo-local agent skills are shared
 !/.agents/
 /.agents/*
 !/.agents/skills/

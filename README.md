@@ -6,7 +6,7 @@ Everything CLIProxyAPI does, this does the same way. Request handling is untouch
 
 ## What differs from upstream
 
-- The management panel it downloads comes from `zytact/clepsydra` releases, and the version check reads `zytact/clepsydra-proxy` releases. `management.panel-github-repository` still overrides the panel source. Upstream's unverified fallback page is off: with no release to download, the proxy serves no panel rather than one it cannot check.
+- The management panel it downloads comes from `zytact/clepsydra` releases, and the version check reads `zytact/clepsydra-proxy` releases. `management.panel-github-repository` still overrides the panel source, so a config that names the upstream panel there keeps getting it. Clear the key or set it to `https://github.com/zytact/clepsydra`. Upstream's unverified fallback page is off: with no release to download, the proxy serves no panel rather than one it cannot check.
 - Release archives are named `clepsydra-proxy_<version>_<os>_<arch>`. The binary inside is still `cli-proxy-api`, so existing service definitions keep working.
 - Releases ship two archives, `windows_amd64` and `linux_amd64`.
 
