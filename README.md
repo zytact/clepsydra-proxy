@@ -21,7 +21,7 @@ Quota history starts filling 30 seconds after start. The panel's quota page need
 - The management panel it downloads comes from `zytact/clepsydra` releases, and the version check reads `zytact/clepsydra-proxy` releases. `management.panel-github-repository` still overrides the panel source, so a config that names the upstream panel there keeps getting it. Clear the key or set it to `https://github.com/zytact/clepsydra`. Upstream's unverified fallback page is off: with no release to download, the proxy serves no panel rather than one it cannot check.
 - Release archives are named `clepsydra-proxy_<version>_<os>_<arch>`. The binary inside is still `cli-proxy-api`, so existing service definitions keep working.
 - Releases ship two archives, `windows_amd64` and `linux_amd64`.
-- When a token refresh fails because the network is down, such as `lookup platform.claude.com: no such host` right after boot, an expired token retries every 15 seconds instead of every 5 minutes, so it works again soon after the network returns.
+- When a token refresh fails because the network is down, such as `lookup platform.claude.com: no such host` right after boot, an expired token retries after 15 seconds instead of 5 minutes, doubling while the network stays down until it reaches the usual 5 minutes. It works again soon after the network returns. A local `proxy-url` that has not started yet counts as the network being down.
 - A quota recorder reads every enabled Claude and Codex account's usage windows every 5 minutes and keeps 21 days of readings. See [Quota history](#quota-history).
 
 ## Quota history

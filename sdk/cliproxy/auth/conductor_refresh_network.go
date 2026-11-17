@@ -8,18 +8,20 @@ import (
 
 const networkRefreshRetry = 15 * time.Second
 
-func expiredTokenRefreshRetryAt(now time.Time, err error) time.Time {
-	if isNetworkUnreachableError(err) {
-		return now.Add(networkRefreshRetry)
+func expiredTokenRefreshRetry(now time.Time, err error, failures int) (int, time.Time) {
+	if !isPreConnectError(err) {
+		return 0, now.Add(refreshFailureBackoff)
 	}
-	return now.Add(refreshFailureBackoff)
+	failures++
+	delay := min(networkRefreshRetry<<min(failures-1, 5), refreshFailureBackoff)
+	return failures, now.Add(delay)
 }
 
-func isNetworkUnreachableError(err error) bool {
+func isPreConnectError(err error) bool {
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return true
 	}
 	var opErr *net.OpError
-	return errors.As(err, &opErr) && opErr.Op == "dial"
+	return errors.As(err, &opErr) && (opErr.Op == "dial" || opErr.Op == "proxyconnect")
 }
