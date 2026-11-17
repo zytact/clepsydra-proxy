@@ -1624,7 +1624,7 @@ func (m *Manager) refreshAuthForRequestAtEpoch(ctx context.Context, id, failedAc
 					shouldReschedule = true
 				} else {
 					current.RefreshFailures = 0
-					current.NextRefreshAfter = now.Add(refreshFailureBackoff)
+					current.NextRefreshAfter = expiredTokenRefreshRetryAt(now, err)
 					current.StatusMessage = "token expired"
 					shouldReschedule = true
 				}
