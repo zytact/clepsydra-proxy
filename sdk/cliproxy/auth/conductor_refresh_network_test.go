@@ -163,3 +163,52 @@ func TestManager_RefreshAuthOffline_SuccessStartsTheLadderOver(t *testing.T) {
 		t.Fatalf("NextRefreshAfter = %s, want the first rung by %s after a successful refresh", updated.NextRefreshAfter, limit)
 	}
 }
+
+type scriptedRefreshExecutor struct {
+	schedulerProviderTestExecutor
+	err *error
+}
+
+func (e scriptedRefreshExecutor) Refresh(ctx context.Context, auth *Auth) (*Auth, error) {
+	return nil, *e.err
+}
+
+func TestManager_RefreshAuthOffline_OtherErrorStartsTheLadderOver(t *testing.T) {
+	ctx := context.Background()
+	offline := error(&net.OpError{Op: "dial", Net: "tcp", Err: &net.DNSError{Err: "no such host", Name: "platform.claude.com", IsNotFound: true}})
+	failure := offline
+	manager := NewManager(nil, &RoundRobinSelector{}, nil)
+	manager.RegisterExecutor(scriptedRefreshExecutor{
+		schedulerProviderTestExecutor: schedulerProviderTestExecutor{provider: "claude"},
+		err:                           &failure,
+	})
+	auth := &Auth{
+		ID:       "offline-refresh-other-error-resets",
+		Provider: "claude",
+		Status:   StatusActive,
+		Metadata: map[string]any{
+			"email":         "offline@example.com",
+			"access_token":  "expired-access-token",
+			"refresh_token": "refresh-token",
+			"expired":       time.Now().Add(-8 * time.Hour).Format(time.RFC3339),
+		},
+	}
+	if _, errRegister := manager.Register(ctx, auth); errRegister != nil {
+		t.Fatalf("register auth: %v", errRegister)
+	}
+	manager.refreshAuth(ctx, auth.ID)
+	manager.refreshAuth(ctx, auth.ID)
+	failure = fmt.Errorf("token refresh failed: invalid_grant")
+	manager.refreshAuth(ctx, auth.ID)
+	failure = offline
+	before := time.Now()
+	manager.refreshAuth(ctx, auth.ID)
+
+	updated, ok := manager.GetByID(auth.ID)
+	if !ok {
+		t.Fatalf("expected auth %q after refresh", auth.ID)
+	}
+	if limit := before.Add(networkRefreshRetry + 5*time.Second); updated.NextRefreshAfter.After(limit) {
+		t.Fatalf("NextRefreshAfter = %s, want the first rung by %s after a non-network error", updated.NextRefreshAfter, limit)
+	}
+}
