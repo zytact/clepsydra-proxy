@@ -5,7 +5,7 @@ Where the proxy looks for its own new versions and for the management panel it s
 ## Sub-features
 
 - `GET /v8/management/server/latest-version` reads the latest release of `zytact/clepsydra-proxy`.
-- The panel download reads the latest release of `zytact/clepsydra` unless `remote-management.panel-github-repository` overrides it.
+- The panel download reads the latest release of `zytact/clepsydra` unless `management.panel-github-repository` overrides it.
 
 ## How to get to it (user POV)
 

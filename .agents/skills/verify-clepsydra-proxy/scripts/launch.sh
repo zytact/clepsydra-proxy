@@ -44,6 +44,7 @@ for _ in $(seq 1 60); do
 done
 [ "${code:-}" = "200" ] || {
   kill "$(cat "$STATE_DIR/proxy.pid")" 2>/dev/null || true
+  rm -f "$STATE_DIR/proxy.pid"
   echo "Proxy did not answer and was stopped, see $STATE_DIR/proxy.out" >&2
   exit 1
 }
