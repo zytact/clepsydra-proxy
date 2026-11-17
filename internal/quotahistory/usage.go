@@ -131,9 +131,11 @@ func (limit codexRateLimit) reached() bool {
 	return limit.LimitReached || (limit.Allowed != nil && !*limit.Allowed)
 }
 
-func anyWindowReported(windows []*codexWindow) bool {
+const nearlyFullPercent = 99
+
+func anyWindowNearlyFull(windows []*codexWindow) bool {
 	for _, window := range windows {
-		if window != nil && window.UsedPercent != nil {
+		if window != nil && window.UsedPercent != nil && *window.UsedPercent >= nearlyFullPercent {
 			return true
 		}
 	}
@@ -153,7 +155,7 @@ func parseCodexUsage(body []byte, now time.Time) ([]Window, error) {
 		return []Window{}, nil
 	}
 	candidates := []*codexWindow{usage.RateLimit.PrimaryWindow, usage.RateLimit.SecondaryWindow}
-	unexplainedLimit := usage.RateLimit.reached() && !anyWindowReported(candidates)
+	unexplainedLimit := usage.RateLimit.reached() && !anyWindowNearlyFull(candidates)
 	windows := []Window{}
 	seen := map[string]bool{}
 	for position, window := range candidates {
