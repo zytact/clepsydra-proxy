@@ -38,7 +38,7 @@ jobs:
           include-component-in-tag: false
           skip-github-pull-request: true
 
-      - if: steps.release.outputs.release_created == 'true'
+      - if: ${{ !cancelled() && steps.release.outputs.release_created == 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.release.outputs.tag_name }}

@@ -54,9 +54,11 @@ Window ids match the management panel's: Claude `five-hour`, `seven-day`, `seven
 
 ## Releases
 
-Every push to `main` runs release-please, which keeps a release PR open with the next version and its changelog. Merging that PR tags `v<upstream version>-clepsydra.<n>`, for example `v8.0.76-clepsydra.2`. The upstream version is the newest plain `vX.Y.Z` upstream tag merged into `main`, and `<n>` counts up from 1 for each upstream version. The `release` workflow then builds the Windows zip and the Linux tarball, attaches them with `checksums.txt`, and publishes the release, which stays a draft until every asset is up. Each archive holds the upstream-named `cli-proxy-api` binary, and the Linux one targets a GLIBC 2.17 baseline.
+Every push to `main` runs release-please. Once a `feat` or `fix` commit lands, it opens a release PR with the next version and its changelog, and keeps it current. Merging that PR tags `v<upstream version>-clepsydra.<n>`, for example `v8.0.76-clepsydra.2`. The upstream version is the newest plain `vX.Y.Z` upstream tag merged into `main`, and `<n>` counts up from 1 for each upstream version. The `release` workflow then builds the Windows zip and the Linux tarball, attaches them with `checksums.txt`, and publishes the release, which goes back to draft seconds after release-please creates it and stays there until every asset is up. Each archive holds the upstream-named `cli-proxy-api` binary, and the Linux one targets a GLIBC 2.17 baseline.
 
-If a build fails, run the `release` workflow by hand with the draft's tag to build and publish it.
+release-please needs "Allow GitHub Actions to create and approve pull requests" turned on under Settings > Actions > General.
+
+If a build fails, run the `release` workflow by hand with the draft's tag to build and publish it. A rebuild does not mark the release as latest.
 
 ## Staying close to upstream
 
