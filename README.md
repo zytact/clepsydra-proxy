@@ -58,7 +58,7 @@ Every push to `main` runs release-please. Once a `feat` or `fix` commit lands, i
 
 release-please needs "Allow GitHub Actions to create and approve pull requests" turned on under Settings > Actions > General.
 
-If a build fails, run the `release` workflow by hand with the draft's tag to build and publish it. A rebuild becomes the latest release only when no newer release is out.
+If a build fails, run the `release` workflow by hand with the draft's tag to build and publish it. A rebuild becomes the latest release only when no published release has a higher version.
 
 ## Staying close to upstream
 

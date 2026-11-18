@@ -39,6 +39,7 @@ jobs:
           skip-github-pull-request: true
 
       - if: always()
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -258,5 +259,6 @@ jobs:
           cd dist
           sha256sum clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip | sort -k2 > checksums.txt
           gh release upload "$TAG" clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip checksums.txt --clobber
-          highest="$({ gh release list --exclude-drafts --limit 100 --json tagName --jq '.[].tagName'; echo "$TAG"; } | sort -V | tail -n 1)"
+          published="$(gh release list --exclude-drafts --limit 100 --json tagName --jq '.[].tagName')"
+          highest="$(printf '%s\n' "$published" "$TAG" | sort -V | tail -n 1)"
           gh release edit "$TAG" --draft=false --latest="$([[ "$highest" == "$TAG" ]] && echo true || echo false)"
