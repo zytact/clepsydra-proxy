@@ -31,17 +31,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - id: version
-        run: |
-          version="$(bash .github/scripts/next-release-version.sh https://github.com/router-for-me/CLIProxyAPI.git)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
       - id: release
         uses: googleapis/release-please-action@v5
         with:
           release-type: simple
           include-component-in-tag: false
-          release-as: ${{ steps.version.outputs.version }}
+          skip-github-pull-request: true
 
       - if: steps.release.outputs.release_created == 'true'
         env:
@@ -49,12 +44,23 @@ jobs:
           TAG: ${{ steps.release.outputs.tag_name }}
         run: gh release edit "$TAG" --draft=true
 
+      - id: version
+        run: |
+          git fetch --quiet --force --tags origin
+          version="$(bash .github/scripts/next-release-version.sh https://github.com/router-for-me/CLIProxyAPI.git)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: googleapis/release-please-action@v5
+        with:
+          release-type: simple
+          include-component-in-tag: false
+          skip-github-release: true
+          release-as: ${{ steps.version.outputs.version }}
+
   build-hosted:
     name: build ${{ matrix.target }}
     needs: release-please
     if: ${{ !cancelled() && (needs.release-please.outputs.created == 'true' || inputs.tag != '') }}
-    permissions:
-      contents: write
     env:
       TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
     runs-on: ${{ matrix.runner }}
@@ -134,27 +140,11 @@ jobs:
           name: ${{ matrix.target }}
           path: dist/clepsydra-proxy_*
           if-no-files-found: error
-      - name: Upload release assets
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          assets=(dist/clepsydra-proxy_*.tar.gz dist/clepsydra-proxy_*.zip)
-          if [[ ${#assets[@]} -eq 0 ]]; then
-            printf 'expected archive assets, found %s\n' "${#assets[@]}" >&2
-            printf '%s\n' "${assets[@]}" >&2
-            exit 1
-          fi
-          gh release upload "$TAG" "${assets[@]}" --clobber
 
   build-linux-glibc:
     name: build linux-${{ matrix.goarch }} glibc
     needs: release-please
     if: ${{ !cancelled() && (needs.release-please.outputs.created == 'true' || inputs.tag != '') }}
-    permissions:
-      contents: write
     env:
       TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
     runs-on: ${{ matrix.runner }}
@@ -242,20 +232,6 @@ jobs:
           name: ${{ matrix.target }}
           path: dist/clepsydra-proxy_*
           if-no-files-found: error
-      - name: Upload release assets
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          assets=(dist/clepsydra-proxy_*.tar.gz)
-          if [[ ${#assets[@]} -eq 0 ]]; then
-            printf 'expected archive assets, found %s\n' "${#assets[@]}" >&2
-            printf '%s\n' "${assets[@]}" >&2
-            exit 1
-          fi
-          gh release upload "$TAG" "${assets[@]}" --clobber
 
   publish:
     runs-on: ubuntu-latest
@@ -280,5 +256,5 @@ jobs:
           set -euo pipefail
           cd dist
           sha256sum clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip | sort -k2 > checksums.txt
-          gh release upload "$TAG" checksums.txt --clobber
-          gh release edit "$TAG" --draft=false --latest
+          gh release upload "$TAG" clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip checksums.txt --clobber
+          gh release edit "$TAG" --draft=false --latest=${{ github.event_name == 'push' }}
