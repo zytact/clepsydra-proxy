@@ -54,7 +54,9 @@ Window ids match the management panel's: Claude `five-hour`, `seven-day`, `seven
 
 ## Releases
 
-Push a tag shaped like `v<upstream version>-clepsydra.<n>`, for example `v8.0.76-clepsydra.1`. The `release` workflow builds both archives, attaches them with `checksums.txt`, and writes the notes. Other tags, including upstream's own, publish nothing.
+Every push to `main` runs release-please, which keeps a release PR open with the next version and its changelog. Merging that PR tags `v<upstream version>-clepsydra.<n>`, for example `v8.0.76-clepsydra.2`. The upstream version is the newest plain `vX.Y.Z` upstream tag merged into `main`, and `<n>` counts up from 1 for each upstream version. The `release` workflow then builds the Windows zip and the Linux tarball, attaches them with `checksums.txt`, and publishes the release, which stays a draft until every asset is up. Each archive holds the upstream-named `cli-proxy-api` binary, and the Linux one targets a GLIBC 2.17 baseline.
+
+If a build fails, run the `release` workflow by hand with the draft's tag to build and publish it.
 
 ## Staying close to upstream
 

@@ -2,92 +2,61 @@ name: release
 
 on:
   push:
-    tags:
-      - 'v*-clepsydra.*'
-
-permissions:
-  contents: write
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Draft release to build and publish, for when a release run failed (e.g. v8.0.76-clepsydra.2).
+        type: string
+        required: true
 
 env:
   GH_REPO: ${{ github.repository }}
   GO_VERSION: '1.26.10'
 
 jobs:
-  prepare-release:
+  release-please:
+    if: github.event_name == 'push'
+    concurrency: release-please
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Create release
+
+      - id: version
+        run: |
+          version="$(bash .github/scripts/next-release-version.sh https://github.com/router-for-me/CLIProxyAPI.git)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          release-type: simple
+          include-component-in-tag: false
+          release-as: ${{ steps.version.outputs.version }}
+
+      - if: steps.release.outputs.release_created == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          release_notes_file="$(mktemp)"
-          generated_notes_file="$(mktemp)"
-          changelog_entries_file="$(mktemp)"
-          changelog_notes_file="$(mktemp)"
-          updated_notes_file="$(mktemp)"
-          trap 'rm -f "$release_notes_file" "$generated_notes_file" "$changelog_entries_file" "$changelog_notes_file" "$updated_notes_file"' EXIT
-
-          cat > "$release_notes_file" <<'EOF'
-          ## Release assets
-
-          - `clepsydra-proxy_<version>_windows_amd64.zip`
-          - `clepsydra-proxy_<version>_linux_amd64.tar.gz`, built against a GLIBC 2.17 baseline.
-
-          The binary inside each archive keeps the upstream name, `cli-proxy-api`.
-          EOF
-
-          git fetch --force --tags
-          previous_tag=""
-          if previous_tag_value="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null)"; then
-            previous_tag="$previous_tag_value"
-            changelog_range="${previous_tag}..${GITHUB_REF_NAME}"
-          else
-            changelog_range="$GITHUB_REF_NAME"
-          fi
-
-          git log --reverse --pretty=format:'- %s (%h)' "$changelog_range" |
-            grep -Ev '^- (docs:|test:)' > "$changelog_entries_file" || true
-
-          gh api "repos/${GH_REPO}/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" \
-            --jq .body > "$generated_notes_file"
-          if [[ ! -s "$generated_notes_file" ]]; then
-            if [[ -n "$previous_tag" ]]; then
-              printf '**Full Changelog**: https://github.com/%s/compare/%s...%s\n' "$GH_REPO" "$previous_tag" "$GITHUB_REF_NAME" > "$generated_notes_file"
-            else
-              printf '**Full Changelog**: https://github.com/%s/commits/%s\n' "$GH_REPO" "$GITHUB_REF_NAME" > "$generated_notes_file"
-            fi
-          fi
-
-          {
-            if [[ -s "$changelog_entries_file" ]]; then
-              printf '## Changelog\n\n'
-              cat "$changelog_entries_file"
-              printf '\n\n'
-            fi
-            cat "$generated_notes_file"
-          } > "$changelog_notes_file"
-
-          {
-            cat "$release_notes_file"
-            printf '\n'
-            cat "$changelog_notes_file"
-          } > "$updated_notes_file"
-
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$updated_notes_file"
-          else
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$updated_notes_file"
-          fi
+          TAG: ${{ steps.release.outputs.tag_name }}
+        run: gh release edit "$TAG" --draft=true
 
   build-hosted:
     name: build ${{ matrix.target }}
-    needs: prepare-release
+    needs: release-please
+    if: ${{ !cancelled() && (needs.release-please.outputs.created == 'true' || inputs.tag != '') }}
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -102,6 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.TAG }}
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
@@ -126,7 +96,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=${TAG#v}" >> "$GITHUB_ENV"
           echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: Build archive
@@ -177,40 +147,16 @@ jobs:
             printf '%s\n' "${assets[@]}" >&2
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-      - name: Refresh release checksums
-        continue-on-error: true
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tmp_dir="$(mktemp -d)"
-          trap 'rm -rf "$tmp_dir"' EXIT
-          gh release download "$GITHUB_REF_NAME" \
-            --pattern 'clepsydra-proxy_*.tar.gz' \
-            --pattern 'clepsydra-proxy_*.zip' \
-            --dir "$tmp_dir" \
-            --clobber
-          (
-            cd "$tmp_dir"
-            shopt -s nullglob
-            archives=(clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip)
-            if [[ ${#archives[@]} -eq 0 ]]; then
-              echo "No release archives found"
-              exit 0
-            fi
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "${archives[@]}" | sort -k2 > checksums.txt
-            else
-              shasum -a 256 "${archives[@]}" | sort -k2 > checksums.txt
-            fi
-          )
-          gh release upload "$GITHUB_REF_NAME" "$tmp_dir/checksums.txt" --clobber
+          gh release upload "$TAG" "${assets[@]}" --clobber
 
   build-linux-glibc:
     name: build linux-${{ matrix.goarch }} glibc
-    needs: prepare-release
+    needs: release-please
+    if: ${{ !cancelled() && (needs.release-please.outputs.created == 'true' || inputs.tag != '') }}
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -224,6 +170,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.TAG }}
           fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
@@ -239,7 +186,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=${TAG#v}" >> "$GITHUB_ENV"
           echo "COMMIT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: Build archive
@@ -308,59 +255,30 @@ jobs:
             printf '%s\n' "${assets[@]}" >&2
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
-      - name: Refresh release checksums
-        continue-on-error: true
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tmp_dir="$(mktemp -d)"
-          trap 'rm -rf "$tmp_dir"' EXIT
-          gh release download "$GITHUB_REF_NAME" \
-            --pattern 'clepsydra-proxy_*.tar.gz' \
-            --pattern 'clepsydra-proxy_*.zip' \
-            --dir "$tmp_dir" \
-            --clobber
-          (
-            cd "$tmp_dir"
-            shopt -s nullglob
-            archives=(clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip)
-            if [[ ${#archives[@]} -eq 0 ]]; then
-              echo "No release archives found"
-              exit 0
-            fi
-            if command -v sha256sum >/dev/null 2>&1; then
-              sha256sum "${archives[@]}" | sort -k2 > checksums.txt
-            else
-              shasum -a 256 "${archives[@]}" | sort -k2 > checksums.txt
-            fi
-          )
-          gh release upload "$GITHUB_REF_NAME" "$tmp_dir/checksums.txt" --clobber
+          gh release upload "$TAG" "${assets[@]}" --clobber
 
-  publish-checksums:
+  publish:
     runs-on: ubuntu-latest
-    if: always()
+    if: ${{ !cancelled() && needs.build-hosted.result == 'success' && needs.build-linux-glibc.result == 'success' }}
     needs:
+      - release-please
       - build-hosted
       - build-linux-glibc
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ needs.release-please.outputs.tag || inputs.tag }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-      - name: Publish final checksums
+      - name: Publish checksums and the release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           cd dist
-          shopt -s nullglob
-          archives=(clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip)
-          if [[ ${#archives[@]} -eq 0 ]]; then
-            echo "No release archives found"
-            exit 0
-          fi
-          sha256sum "${archives[@]}" | sort -k2 > checksums.txt
-          gh release upload "$GITHUB_REF_NAME" checksums.txt --clobber
+          sha256sum clepsydra-proxy_*.tar.gz clepsydra-proxy_*.zip | sort -k2 > checksums.txt
+          gh release upload "$TAG" checksums.txt --clobber
+          gh release edit "$TAG" --draft=false --latest
