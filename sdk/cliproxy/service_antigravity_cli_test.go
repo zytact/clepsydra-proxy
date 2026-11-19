@@ -139,3 +139,21 @@ func TestBuilderLeavesTheCLILoginOffUnlessAsked(t *testing.T) {
 		t.Fatal("WithAntigravityCLILogin did not wire the reader")
 	}
 }
+
+func TestAntigravityCLILoginLeavesAsSoonAsConfigTurnsItOff(t *testing.T) {
+	fake := &fakeAntigravityCLI{login: &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh", Email: "cli@example.com"}}
+	svc, loop := newAntigravityCLILoop(&config.Config{}, fake)
+	svc.antigravityCLILoop.Store(loop)
+	loop.sync(context.Background())
+	if _, ok := svc.coreManager.GetByID(antigravityCLIAuthID); !ok {
+		t.Fatal("auth not registered")
+	}
+
+	disabled := false
+	cfg := &config.Config{Antigravity: config.AntigravityConfig{CLILoginQuota: &disabled}}
+	svc.cfg = cfg
+	svc.applyAntigravityCLILoginConfig(context.Background(), cfg)
+	if _, ok := svc.coreManager.GetByID(antigravityCLIAuthID); ok {
+		t.Fatal("auth kept after cli-login-quota was turned off")
+	}
+}

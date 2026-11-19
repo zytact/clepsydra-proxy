@@ -3,6 +3,7 @@ package cliproxy
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
@@ -46,6 +47,7 @@ const (
 var errAntigravityCLIProjectMissing = errors.New("loadCodeAssist returned no project")
 
 type antigravityCLILoginLoop struct {
+	mu      sync.Mutex
 	service *Service
 	source  antigravityCLILoginSource
 	state   antigravityCLILoginState
@@ -56,6 +58,7 @@ func (s *Service) startAntigravityCLILogin(ctx context.Context) {
 		return
 	}
 	loop := &antigravityCLILoginLoop{service: s, source: s.antigravityCLILogin}
+	s.antigravityCLILoop.Store(loop)
 	go func() {
 		ticker := time.NewTicker(antigravityCLIPollInterval)
 		defer ticker.Stop()
@@ -70,7 +73,17 @@ func (s *Service) startAntigravityCLILogin(ctx context.Context) {
 	}()
 }
 
+func (s *Service) applyAntigravityCLILoginConfig(ctx context.Context, cfg *config.Config) {
+	loop := s.antigravityCLILoop.Load()
+	if loop == nil || cfg == nil || cfg.Antigravity.CLILoginQuotaEnabled() {
+		return
+	}
+	loop.sync(ctx)
+}
+
 func (l *antigravityCLILoginLoop) sync(ctx context.Context) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	s := l.service
 	if s == nil || s.coreManager == nil || ctx.Err() != nil {
 		return

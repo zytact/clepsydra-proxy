@@ -32,6 +32,7 @@ type Service struct {
 	cfg *config.Config
 
 	antigravityCLILogin antigravityCLILoginSource
+	antigravityCLILoop  atomic.Pointer[antigravityCLILoginLoop]
 
 	// cfgMu protects concurrent access to the configuration.
 	cfgMu sync.RWMutex
