@@ -276,6 +276,12 @@ type AntigravityConfig struct {
 	// is explicitly configured. Set to "0", "off", "false", "none", or
 	// "disabled" to explicitly disable the pause.
 	TOSPauseWindow string `yaml:"tos-pause-window,omitempty" json:"tos-pause-window,omitempty"`
+
+	CLILoginQuota *bool `yaml:"cli-login-quota,omitempty" json:"cli-login-quota,omitempty"`
+}
+
+func (c AntigravityConfig) CLILoginQuotaEnabled() bool {
+	return c.CLILoginQuota == nil || *c.CLILoginQuota
 }
 
 // AntigravityConnectionPoolConfig controls upstream HTTP/1.1 connection pooling behavior for Antigravity.
