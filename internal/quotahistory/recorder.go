@@ -30,8 +30,9 @@ const (
 )
 
 type usageSource struct {
+	method  string
 	urls    func(account *auth.Auth) []string
-	body    func(account *auth.Auth) ([]byte, error)
+	body    func(account *auth.Auth) []byte
 	headers func(account *auth.Auth, header http.Header)
 	parse   func(body []byte, now time.Time) ([]Window, error)
 }
@@ -39,7 +40,8 @@ type usageSource struct {
 func defaultSources() map[string]usageSource {
 	return map[string]usageSource{
 		"claude": {
-			urls: fixedURLs(claudeUsageURL),
+			method: http.MethodGet,
+			urls:   fixedURLs(claudeUsageURL),
 			headers: func(_ *auth.Auth, header http.Header) {
 				header.Set("anthropic-beta", "oauth-2025-04-20")
 				header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
@@ -47,7 +49,8 @@ func defaultSources() map[string]usageSource {
 			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseClaudeUsage(body) },
 		},
 		"codex": {
-			urls: fixedURLs(codexUsageURL),
+			method: http.MethodGet,
+			urls:   fixedURLs(codexUsageURL),
 			headers: func(account *auth.Auth, header http.Header) {
 				header.Set("User-Agent", "codex_cli_rs")
 				if accountID := metadataString(account, "account_id"); accountID != "" {
@@ -57,8 +60,9 @@ func defaultSources() map[string]usageSource {
 			parse: parseCodexUsage,
 		},
 		"antigravity": {
-			urls: antigravityQuotaURLs,
-			body: antigravityQuotaBody,
+			method: http.MethodPost,
+			urls:   antigravityQuotaURLs,
+			body:   antigravityQuotaBody,
 			headers: func(account *auth.Auth, header http.Header) {
 				header.Set("Content-Type", "application/json")
 				header.Set("User-Agent", misc.AntigravityRequestUserAgent(antigravity.ConfiguredUserAgent(account)))
@@ -68,10 +72,11 @@ func defaultSources() map[string]usageSource {
 	}
 }
 
-func antigravityQuotaBody(account *auth.Auth) ([]byte, error) {
-	return json.Marshal(struct {
+func antigravityQuotaBody(account *auth.Auth) []byte {
+	body, _ := json.Marshal(struct {
 		Project string `json:"project,omitempty"`
 	}{Project: metadataString(account, "project_id")})
+	return body
 }
 
 func fixedURLs(urls ...string) func(*auth.Auth) []string {
@@ -189,11 +194,7 @@ func (r *Recorder) readWindows(ctx context.Context, account *auth.Auth, source u
 	}
 	var payload []byte
 	if source.body != nil {
-		built, errBody := source.body(account)
-		if errBody != nil {
-			return nil, fmt.Errorf("build usage request body: %w", errBody)
-		}
-		payload = built
+		payload = source.body(account)
 	}
 	var errFirst error
 	for _, url := range source.urls(account) {
@@ -226,13 +227,11 @@ func (r *Recorder) readURL(ctx context.Context, account *auth.Auth, source usage
 func (r *Recorder) fetchURL(ctx context.Context, account *auth.Auth, source usageSource, url, token string, payload []byte) ([]byte, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	method := http.MethodGet
 	var requestBody io.Reader
 	if payload != nil {
-		method = http.MethodPost
 		requestBody = bytes.NewReader(payload)
 	}
-	request, errRequest := http.NewRequestWithContext(requestCtx, method, url, requestBody)
+	request, errRequest := http.NewRequestWithContext(requestCtx, source.method, url, requestBody)
 	if errRequest != nil {
 		return nil, fmt.Errorf("build usage request: %w", errRequest)
 	}

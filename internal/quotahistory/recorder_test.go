@@ -112,24 +112,10 @@ func TestPollPostsAntigravityProjectAndFallsBackToTheSecondHost(t *testing.T) {
 	}))
 	defer prod.Close()
 
-	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
-	store := NewStore(t.TempDir())
-	recorder := NewRecorder(staticAuths{
-		{ID: "antigravity-a.json", Provider: "antigravity", Metadata: map[string]any{"access_token": "token-a", "project_id": "project-a"}},
-	}, store, func() string { return "" })
-	recorder.now = func() time.Time { return now }
-	source := defaultSources()["antigravity"]
-	source.urls = fixedURLs(daily.URL, prod.URL)
-	recorder.sources = map[string]usageSource{"antigravity": source}
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{"project_id": "project-a"}), daily.URL, prod.URL)
 
-	recorder.Poll(context.Background())
-
-	readings, errSince := store.Since(now.Add(-time.Minute))
-	if errSince != nil {
-		t.Fatal(errSince)
-	}
-	if len(readings) != 1 || readings[0].Error != "" || len(readings[0].Windows) != 1 || readings[0].Windows[0].UsedPercent != 50 {
-		t.Fatalf("readings = %+v", readings)
+	if reading.Error != "" || len(reading.Windows) != 1 || reading.Windows[0].UsedPercent != 50 {
+		t.Fatalf("reading = %+v", reading)
 	}
 	if gotMethod != http.MethodPost || gotBody != `{"project":"project-a"}` || gotContentType != "application/json" {
 		t.Fatalf("request = %s %q content-type %q", gotMethod, gotBody, gotContentType)
@@ -188,20 +174,22 @@ func TestPollFallsBackWhenTheFirstHostAnswersAnUnreadableBody(t *testing.T) {
 
 func TestPollStopsOnAnAuthErrorFromTheFirstHost(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
-		daily := respond(status, "")
-		prodRequested := false
-		prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { prodRequested = true }))
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			daily := respond(status, "")
+			t.Cleanup(daily.Close)
+			prodRequested := false
+			prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { prodRequested = true }))
+			t.Cleanup(prod.Close)
 
-		reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
-		daily.Close()
-		prod.Close()
+			reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
 
-		if prodRequested {
-			t.Fatalf("status %d: fell back to the second host", status)
-		}
-		if reading.Error != (statusError{status: status}).Error() {
-			t.Fatalf("status %d: reading error = %q", status, reading.Error)
-		}
+			if prodRequested {
+				t.Fatal("fell back to the second host")
+			}
+			if reading.Error != (statusError{status: status}).Error() {
+				t.Fatalf("reading error = %q", reading.Error)
+			}
+		})
 	}
 }
 
