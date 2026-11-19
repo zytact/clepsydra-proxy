@@ -32,6 +32,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length).decode()
+        if not self.path.endswith(":retrieveUserQuotaSummary"):
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if log_path:
             with open(log_path, "a") as log:
                 log.write(json.dumps({"path": self.path, "body": body, "ua": self.headers.get("User-Agent")}) + "\n")

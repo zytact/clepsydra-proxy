@@ -9,7 +9,7 @@ The background recorder that reads every enabled Claude, Codex and Antigravity a
 - A failed poll stores the reason in `error` and no windows, so a rejected or expired token still leaves a reading.
 - Disabled accounts are skipped, and so is every other provider.
 - Antigravity readings come from a POST to `/v1internal:retrieveUserQuotaSummary` with `{"project": <project_id>}` (or `{}` without one). There is one window per enabled bucket: `id` is the `bucketId`, `window_seconds` is 18000 for `5h` and 604800 for `weekly`, and `scope` is `model`. Disabled buckets are dropped.
-- Antigravity tries the daily host, then prod, unless the account sets `base_url`, which is then the only host. A 401 or 403 stops the fallback, and the first host's error is the one stored.
+- Antigravity tries the daily host, then prod, unless the account sets `base_url`, which is then the only host. A 401 or 403 from any host stops the fallback and is the error stored. Otherwise, when every host fails, the first host's error is stored.
 - Day files older than 21 days are pruned.
 - `GET /v8/management/quota/history?since=<RFC 3339 time>` returns `interval_seconds`, `since` and `readings` oldest first, defaulting to the last 15 days.
 
@@ -46,7 +46,7 @@ Proof: no reading for `claude-alpha.json` after the poll that follows the edit. 
 
 ## Driving Antigravity with a local stub
 
-`quota-stub.py <port> [status] [request-log]` answers `retrieveUserQuotaSummary` with four enabled buckets and one disabled one, or with the given error status, and logs each request's path, body and user agent. `fake-antigravity.sh <name> [--expired] [--base-url URL]` writes a fake Antigravity account with `project_id: fake-project-<name>`. Write the accounts within 30 seconds of launch to catch the first poll.
+`quota-stub.py <port> [status] [request-log]` answers only `retrieveUserQuotaSummary`, returning 404 without logging for any other path such as the model probe. It returns four enabled buckets and one disabled one, or with the given error status, and logs each request's path, body and user agent. `fake-antigravity.sh <name> [--expired] [--base-url URL]` writes a fake Antigravity account with `project_id: fake-project-<name>`. Write the accounts within 30 seconds of launch to catch the first poll.
 
 ```bash
 STATE_DIR=${VERIFY_STATE_DIR:-/tmp/verify-clepsydra-proxy}
@@ -59,7 +59,7 @@ $P/fake-antigravity.sh public
 # after the next poll
 $P/api.sh GET /quota/history
 cat "$STATE_DIR/stub/"*.log
-kill "$(cat "$STATE_DIR/stub/ok.pid")" "$(cat "$STATE_DIR/stub/denied.pid")"   # before cleanup.sh
+kill "$(cat "$STATE_DIR/stub/ok.pid")" "$(cat "$STATE_DIR/stub/denied.pid")"   # before cleanup.sh, which removes $STATE_DIR/stub
 ```
 
 Proof:

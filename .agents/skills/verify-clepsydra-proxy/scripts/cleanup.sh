@@ -11,5 +11,5 @@ if [ -f "$STATE_DIR/proxy.pid" ]; then
   kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null
   rm -f "$STATE_DIR/proxy.pid"
 fi
-rm -rf "$STATE_DIR/run" "$STATE_DIR/session.env" "$STATE_DIR/proxy.out"
+rm -rf "$STATE_DIR/run" "$STATE_DIR/stub" "$STATE_DIR/session.env" "$STATE_DIR/proxy.out"
 echo "cleaned up"
