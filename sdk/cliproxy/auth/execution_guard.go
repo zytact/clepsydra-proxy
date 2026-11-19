@@ -41,3 +41,10 @@ func guardedHttpRequest(ctx context.Context, executor ProviderExecutor, auth *Au
 	}
 	return executor.HttpRequest(ctx, auth, req)
 }
+
+func guardedPrepareRequest(preparer RequestPreparer, req *http.Request, auth *Auth) error {
+	if errRefuse := refuseQuotaOnly(auth); errRefuse != nil {
+		return errRefuse
+	}
+	return preparer.PrepareRequest(req, auth)
+}

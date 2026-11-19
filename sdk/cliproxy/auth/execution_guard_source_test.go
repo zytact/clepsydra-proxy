@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutorCallsGoThroughTheGuard(t *testing.T) {
-	executorMethods := map[string]bool{"Execute": true, "ExecuteStream": true, "CountTokens": true, "HttpRequest": true}
+	executorMethods := map[string]bool{"Execute": true, "ExecuteStream": true, "CountTokens": true, "HttpRequest": true, "PrepareRequest": true}
 	entries, errRead := os.ReadDir(".")
 	if errRead != nil {
 		t.Fatal(errRead)
@@ -32,9 +32,6 @@ func TestExecutorCallsGoThroughTheGuard(t *testing.T) {
 			}
 			selector, ok := call.Fun.(*ast.SelectorExpr)
 			if !ok || !executorMethods[selector.Sel.Name] {
-				return true
-			}
-			if receiver, isIdent := selector.X.(*ast.Ident); isIdent && receiver.Name == "m" {
 				return true
 			}
 			t.Errorf("%s calls %s directly; use the guarded helper in execution_guard.go", fset.Position(call.Pos()), selector.Sel.Name)

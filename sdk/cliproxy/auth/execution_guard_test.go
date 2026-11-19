@@ -64,6 +64,12 @@ func (e *creditsRecordingExecutor) CountTokens(_ context.Context, auth *Auth, _ 
 	return cliproxyexecutor.Response{}, nil
 }
 
+func (e *creditsRecordingExecutor) PrepareRequest(req *http.Request, auth *Auth) error {
+	e.record(auth)
+	req.Header.Set("Authorization", "Bearer token")
+	return nil
+}
+
 func (e *creditsRecordingExecutor) HttpRequest(_ context.Context, auth *Auth, _ *http.Request) (*http.Response, error) {
 	e.record(auth)
 	return nil, nil
@@ -145,7 +151,8 @@ func TestExecutionGuardRefusesQuotaOnlyAuth(t *testing.T) {
 	_, errStream := guardedExecuteStream(ctx, executor, auth, request, cliproxyexecutor.Options{})
 	_, errCount := guardedCountTokens(ctx, executor, auth, request, cliproxyexecutor.Options{})
 	_, errHTTP := guardedHttpRequest(ctx, executor, auth, httpReq)
-	for name, err := range map[string]error{"execute": errExecute, "stream": errStream, "count": errCount, "http": errHTTP} {
+	errPrepare := guardedPrepareRequest(executor, httpReq, auth)
+	for name, err := range map[string]error{"execute": errExecute, "stream": errStream, "count": errCount, "http": errHTTP, "prepare": errPrepare} {
 		guardErr, ok := err.(*Error)
 		if !ok || guardErr.Code != "auth_quota_only" || guardErr.Retryable {
 			t.Errorf("%s: err = %v, want non-retryable auth_quota_only", name, err)
