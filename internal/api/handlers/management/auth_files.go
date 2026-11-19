@@ -46,7 +46,7 @@ var (
 	errInvalidAuthFile         = errors.New("invalid auth file")
 	errAuthFileNotFound        = errors.New("auth file not found")
 	errPluginVirtualAuth       = errors.New("plugin virtual auth cannot be modified directly; edit or delete the source auth file")
-	errQuotaOnlyAuth           = errors.New("quota-only credential is managed by the Antigravity CLI and cannot be modified here")
+	errQuotaOnlyAuth           = errors.New("quota-only credential cannot be modified here")
 	newCodexOAuthService       = func(cfg *config.Config) codexOAuthService { return codex.NewCodexAuth(cfg) }
 	newAntigravityOAuthService = func(cfg *config.Config) antigravityOAuthService { return antigravity.NewAntigravityAuth(cfg, nil) }
 )

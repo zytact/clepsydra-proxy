@@ -2662,8 +2662,8 @@ func (m *Manager) VerifyInference(ctx context.Context, id, model string) (*Auth,
 	if auth.Disabled || auth.Status == StatusDisabled {
 		return auth, &Error{Code: "auth_disabled", Message: "credential is disabled", HTTPStatus: http.StatusConflict}
 	}
-	if auth.QuotaOnly {
-		return auth, &Error{Code: "auth_quota_only", Message: "credential is quota-only and never serves requests", HTTPStatus: http.StatusConflict}
+	if errRefuse := refuseQuotaOnly(auth); errRefuse != nil {
+		return auth, errRefuse
 	}
 	if auth.RequiresSignIn {
 		return auth, &Error{Code: "sign_in_required", Message: "credential requires sign-in before inference verification", HTTPStatus: http.StatusConflict}

@@ -15,18 +15,17 @@ import (
 )
 
 const (
-	antigravityCLIAuthID       = "antigravity-cli"
-	antigravityCLILoginOrigin  = "antigravity-cli"
+	antigravityCLILoginSource  = "antigravity-cli"
 	antigravityCLIPollInterval = time.Minute
 )
 
-type antigravityCLILoginSource struct {
+type antigravityCLILoginDeps struct {
 	read     func() (*antigravity.CLILogin, error)
 	discover func(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error)
 }
 
-func defaultAntigravityCLILoginSource() antigravityCLILoginSource {
-	return antigravityCLILoginSource{
+func defaultAntigravityCLILoginDeps() antigravityCLILoginDeps {
+	return antigravityCLILoginDeps{
 		read: antigravity.ReadCLILogin,
 		discover: func(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error) {
 			return executor.NewAntigravityExecutor(cfg).PrepareRequestAuth(ctx, auth)
@@ -49,7 +48,7 @@ var errAntigravityCLIProjectMissing = errors.New("loadCodeAssist returned no pro
 type antigravityCLILoginLoop struct {
 	mu      sync.Mutex
 	service *Service
-	source  antigravityCLILoginSource
+	source  antigravityCLILoginDeps
 	state   antigravityCLILoginState
 }
 
@@ -88,7 +87,7 @@ func (l *antigravityCLILoginLoop) sync(ctx context.Context) {
 	if s == nil || s.coreManager == nil || ctx.Err() != nil {
 		return
 	}
-	existing, exists := s.coreManager.GetByID(antigravityCLIAuthID)
+	existing, exists := s.coreManager.GetByID(antigravityCLILoginSource)
 	if !s.antigravityCLILoginEnabled() {
 		l.remove(ctx, exists)
 		l.report(antigravityCLILoginDisabled, nil)
@@ -132,13 +131,12 @@ func (l *antigravityCLILoginLoop) remove(ctx context.Context, exists bool) {
 	if !exists {
 		return
 	}
-	l.service.handleAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: antigravityCLIAuthID})
+	l.service.handleAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: antigravityCLILoginSource})
 }
 
 func (s *Service) antigravityCLILoginEnabled() bool {
-	s.cfgMu.RLock()
-	defer s.cfgMu.RUnlock()
-	return s.cfg == nil || s.cfg.Antigravity.CLILoginQuotaEnabled()
+	cfg := s.currentConfig()
+	return cfg == nil || cfg.Antigravity.CLILoginQuotaEnabled()
 }
 
 func (l *antigravityCLILoginLoop) report(state antigravityCLILoginState, err error) {
@@ -158,10 +156,7 @@ func (l *antigravityCLILoginLoop) ensureProject(ctx context.Context, auth *corea
 	if auth.MetadataString("project_id") != "" {
 		return auth, nil
 	}
-	l.service.cfgMu.RLock()
-	cfg := l.service.cfg
-	l.service.cfgMu.RUnlock()
-	prepared, errPrepare := l.source.discover(ctx, cfg, auth)
+	prepared, errPrepare := l.source.discover(ctx, l.service.currentConfig(), auth)
 	if errPrepare != nil {
 		return auth, errPrepare
 	}
@@ -193,14 +188,14 @@ func newAntigravityCLIAuth(login *antigravity.CLILogin, now time.Time) *coreauth
 		label = login.Email
 	}
 	return &coreauth.Auth{
-		ID:        antigravityCLIAuthID,
+		ID:        antigravityCLILoginSource,
 		Provider:  "antigravity",
 		Label:     label,
 		Status:    coreauth.StatusActive,
 		QuotaOnly: true,
 		Attributes: map[string]string{
 			coreauth.AttributeRuntimeOnly: "true",
-			coreauth.AttributeLoginSource: antigravityCLILoginOrigin,
+			coreauth.AttributeLoginSource: antigravityCLILoginSource,
 		},
 		Metadata:  metadata,
 		CreatedAt: now,

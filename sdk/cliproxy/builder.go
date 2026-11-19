@@ -26,7 +26,7 @@ type Builder struct {
 	// cfg holds the application configuration.
 	cfg *config.Config
 
-	antigravityCLILogin antigravityCLILoginSource
+	antigravityCLILogin antigravityCLILoginDeps
 
 	// configPath is the path to the configuration file.
 	configPath string
@@ -218,7 +218,7 @@ func (b *Builder) WithLocalManagementPassword(password string) *Builder {
 // WithPostAuthHook registers a hook to be called after an Auth record is created
 // but before it is persisted to storage.
 func (b *Builder) WithAntigravityCLILogin() *Builder {
-	b.antigravityCLILogin = defaultAntigravityCLILoginSource()
+	b.antigravityCLILogin = defaultAntigravityCLILoginDeps()
 	return b
 }
 
