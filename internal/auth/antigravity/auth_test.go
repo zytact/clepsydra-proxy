@@ -170,3 +170,17 @@ func jsonResponse(body string) *http.Response {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
+
+func TestLookupProjectIDNeverOnboards(t *testing.T) {
+	auth := NewAntigravityAuth(nil, &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.String() != "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
+			t.Fatalf("unexpected request URL: %s", req.URL.String())
+		}
+		return jsonResponse(`{"allowedTiers":[{"id":"free-tier","isDefault":true}]}`), nil
+	})})
+
+	projectID, err := auth.LookupProjectID(context.Background(), "access-token")
+	if err != nil || projectID != "" {
+		t.Fatalf("LookupProjectID = %q, %v; want empty without onboarding", projectID, err)
+	}
+}

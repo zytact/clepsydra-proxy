@@ -250,6 +250,10 @@ func FetchAntigravityProjectID(ctx context.Context, accessToken string, httpClie
 	return authSvc.FetchProjectID(ctx, accessToken)
 }
 
+func LookupAntigravityProjectID(ctx context.Context, accessToken string, httpClient *http.Client) (string, error) {
+	return antigravity.NewAntigravityAuth(&config.Config{}, httpClient).LookupProjectID(ctx, accessToken)
+}
+
 // AntigravityDefaultCallbackPort is the default local port used for Antigravity OAuth loopback callbacks.
 const AntigravityDefaultCallbackPort = antigravity.CallbackPort
 
