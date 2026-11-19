@@ -2,8 +2,10 @@ package quotahistory
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +20,7 @@ func withURLs(urls map[string]string) map[string]usageSource {
 	sources := map[string]usageSource{}
 	for provider, source := range defaultSources() {
 		if url, ok := urls[provider]; ok {
-			source.url = url
+			source.urls = fixedURLs(url)
 			sources[provider] = source
 		}
 	}
@@ -91,5 +93,154 @@ func TestPollRecordsExpiredTokenWithoutRequest(t *testing.T) {
 	readings, _ := store.Since(now.Add(-time.Minute))
 	if requested || len(readings) != 1 || readings[0].Error != "access token expired" {
 		t.Fatalf("requested = %v, readings = %+v", requested, readings)
+	}
+}
+
+func TestPollPostsAntigravityProjectAndFallsBackToTheSecondHost(t *testing.T) {
+	daily := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer daily.Close()
+	var gotMethod, gotBody, gotContentType, gotUserAgent string
+	prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotContentType = r.Header.Get("Content-Type")
+		gotUserAgent = r.Header.Get("User-Agent")
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		_, _ = w.Write([]byte(`{"groups":[{"buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.5}]}]}`))
+	}))
+	defer prod.Close()
+
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{"project_id": "project-a"}), daily.URL, prod.URL)
+
+	if reading.Error != "" || len(reading.Windows) != 1 || reading.Windows[0].UsedPercent != 50 {
+		t.Fatalf("reading = %+v", reading)
+	}
+	if gotMethod != http.MethodPost || gotBody != `{"project":"project-a"}` || gotContentType != "application/json" {
+		t.Fatalf("request = %s %q content-type %q", gotMethod, gotBody, gotContentType)
+	}
+	if !strings.HasPrefix(gotUserAgent, "antigravity/") {
+		t.Fatalf("User-Agent = %q", gotUserAgent)
+	}
+}
+
+func pollAntigravity(t *testing.T, account *auth.Auth, urls ...string) Reading {
+	t.Helper()
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	store := NewStore(t.TempDir())
+	recorder := NewRecorder(staticAuths{account}, store, func() string { return "" })
+	recorder.now = func() time.Time { return now }
+	source := defaultSources()["antigravity"]
+	if len(urls) > 0 {
+		source.urls = fixedURLs(urls...)
+	}
+	recorder.sources = map[string]usageSource{"antigravity": source}
+	recorder.Poll(context.Background())
+	readings, errSince := store.Since(now.Add(-time.Minute))
+	if errSince != nil {
+		t.Fatal(errSince)
+	}
+	if len(readings) != 1 {
+		t.Fatalf("readings = %+v", readings)
+	}
+	return readings[0]
+}
+
+func antigravityAccount(metadata map[string]any) *auth.Auth {
+	metadata["access_token"] = "token-a"
+	return &auth.Auth{ID: "antigravity-a.json", Provider: "antigravity", Metadata: metadata}
+}
+
+func respond(status int, body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func TestPollFallsBackWhenTheFirstHostAnswersAnUnreadableBody(t *testing.T) {
+	daily := respond(http.StatusOK, `{"groups":[]}`)
+	defer daily.Close()
+	prod := respond(http.StatusOK, `{"buckets":[{"bucketId":"gemini-5h","window":"5h","remainingFraction":0.5}]}`)
+	defer prod.Close()
+
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
+
+	if reading.Error != "" || len(reading.Windows) != 1 {
+		t.Fatalf("reading = %+v", reading)
+	}
+}
+
+func TestPollStopsOnAnAuthErrorFromTheFirstHost(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			daily := respond(status, "")
+			t.Cleanup(daily.Close)
+			prodRequested := false
+			prod := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { prodRequested = true }))
+			t.Cleanup(prod.Close)
+
+			reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
+
+			if prodRequested {
+				t.Fatal("fell back to the second host")
+			}
+			if reading.Error != (statusError{status: status}).Error() {
+				t.Fatalf("reading error = %q", reading.Error)
+			}
+		})
+	}
+}
+
+func TestPollReportsTheFirstHostErrorWhenEveryHostFails(t *testing.T) {
+	daily := respond(http.StatusServiceUnavailable, "")
+	defer daily.Close()
+	prod := respond(http.StatusNotFound, "")
+	defer prod.Close()
+
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
+
+	if reading.Error != "usage request returned status 503" {
+		t.Fatalf("reading error = %q", reading.Error)
+	}
+}
+
+func TestPollReportsALaterAuthErrorOverTheFirstHostError(t *testing.T) {
+	daily := respond(http.StatusServiceUnavailable, "")
+	defer daily.Close()
+	prod := respond(http.StatusUnauthorized, "")
+	defer prod.Close()
+
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
+
+	if reading.Error != "usage request returned status 401" {
+		t.Fatalf("reading error = %q", reading.Error)
+	}
+}
+
+func TestAntigravityQuotaURLsPinACustomBaseURL(t *testing.T) {
+	custom := antigravityAccount(map[string]any{"base_url": "https://example.test/"})
+	if got := antigravityQuotaURLs(custom); len(got) != 1 || got[0] != "https://example.test/v1internal:retrieveUserQuotaSummary" {
+		t.Fatalf("custom urls = %v", got)
+	}
+	if got := antigravityQuotaURLs(antigravityAccount(map[string]any{})); len(got) != 2 ||
+		!strings.HasPrefix(got[0], "https://daily-cloudcode-pa.") || !strings.HasPrefix(got[1], "https://cloudcode-pa.") {
+		t.Fatalf("default urls = %v", got)
+	}
+}
+
+func TestPollUsesOnlyTheCustomBaseURL(t *testing.T) {
+	var gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{"base_url": server.URL}))
+
+	if gotPath != "/v1internal:retrieveUserQuotaSummary" || reading.Error != "usage request returned status 503" {
+		t.Fatalf("path %q, reading = %+v", gotPath, reading)
 	}
 }

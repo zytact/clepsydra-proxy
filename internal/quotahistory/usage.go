@@ -244,3 +244,59 @@ func clampPercent(value float64) float64 {
 	}
 	return math.Max(0, math.Min(100, value))
 }
+
+type antigravityBucket struct {
+	BucketID          string   `json:"bucketId"`
+	Window            string   `json:"window"`
+	RemainingFraction *float64 `json:"remainingFraction"`
+	ResetTime         *string  `json:"resetTime"`
+	Disabled          bool     `json:"disabled"`
+}
+
+type antigravityQuotaSummary struct {
+	Groups []struct {
+		Buckets []antigravityBucket `json:"buckets"`
+	} `json:"groups"`
+	Buckets []antigravityBucket `json:"buckets"`
+}
+
+var antigravityWindowSeconds = map[string]int64{
+	"5h":     fiveHourSeconds,
+	"weekly": weekSeconds,
+}
+
+func parseAntigravityQuota(body []byte) ([]Window, error) {
+	var summary antigravityQuotaSummary
+	if errUnmarshal := json.Unmarshal(body, &summary); errUnmarshal != nil {
+		return nil, fmt.Errorf("decode antigravity quota: %w", errUnmarshal)
+	}
+	var buckets []antigravityBucket
+	for _, group := range summary.Groups {
+		buckets = append(buckets, group.Buckets...)
+	}
+	if len(buckets) == 0 {
+		buckets = summary.Buckets
+	}
+	windows := []Window{}
+	for _, bucket := range buckets {
+		id := strings.TrimSpace(bucket.BucketID)
+		if id == "" || bucket.Disabled || bucket.RemainingFraction == nil {
+			continue
+		}
+		remaining := *bucket.RemainingFraction
+		if math.IsNaN(remaining) || math.IsInf(remaining, 0) {
+			continue
+		}
+		windows = append(windows, Window{
+			ID:            id,
+			UsedPercent:   clampPercent((1 - remaining) * 100),
+			ResetsAt:      parseTime(bucket.ResetTime),
+			WindowSeconds: antigravityWindowSeconds[bucket.Window],
+			Scope:         ScopeModel,
+		})
+	}
+	if len(windows) == 0 {
+		return nil, fmt.Errorf("antigravity quota has no buckets")
+	}
+	return windows, nil
+}

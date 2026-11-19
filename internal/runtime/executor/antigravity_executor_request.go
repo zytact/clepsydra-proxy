@@ -15,6 +15,7 @@ import (
 
 	"github.com/MoeForge/moego/ojson"
 	"github.com/google/uuid"
+	antigravityauth "github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
@@ -649,7 +650,7 @@ func antigravityRequestNeedsSchemaSanitizationDoc(doc *ojson.Doc) bool {
 // resolveAntigravityRequestBaseURL selects one request endpoint without cross-tier fallback.
 // Consumer credentials default to daily; enterprise/GCP credentials can set base_url explicitly.
 func resolveAntigravityRequestBaseURL(auth *cliproxyauth.Auth) string {
-	if base := resolveCustomAntigravityBaseURL(auth); base != "" {
+	if base := antigravityauth.CustomBaseURL(auth); base != "" {
 		return base
 	}
 	return antigravityBaseURLDaily
@@ -671,48 +672,11 @@ func resolveHost(base string) string {
 }
 
 func resolveUserAgent(auth *cliproxyauth.Auth) string {
-	return misc.AntigravityRequestUserAgent(antigravityConfiguredUserAgent(auth))
+	return antigravityauth.RequestUserAgent(auth)
 }
 
 func resolveLoadCodeAssistUserAgent(auth *cliproxyauth.Auth) string {
-	return misc.AntigravityLoadCodeAssistUserAgent(antigravityConfiguredUserAgent(auth))
-}
-
-func antigravityConfiguredUserAgent(auth *cliproxyauth.Auth) string {
-	raw := ""
-	if auth != nil {
-		if auth.Attributes != nil {
-			if ua := strings.TrimSpace(auth.Attributes["user_agent"]); ua != "" {
-				raw = ua
-			}
-		}
-		if raw == "" && auth.Metadata != nil {
-			if ua, ok := auth.Metadata["user_agent"].(string); ok && strings.TrimSpace(ua) != "" {
-				raw = strings.TrimSpace(ua)
-			}
-		}
-	}
-	return raw
-}
-
-func resolveCustomAntigravityBaseURL(auth *cliproxyauth.Auth) string {
-	if auth == nil {
-		return ""
-	}
-	if auth.Attributes != nil {
-		if v := strings.TrimSpace(auth.Attributes["base_url"]); v != "" {
-			return strings.TrimSuffix(v, "/")
-		}
-	}
-	if auth.Metadata != nil {
-		if v, ok := auth.Metadata["base_url"].(string); ok {
-			v = strings.TrimSpace(v)
-			if v != "" {
-				return strings.TrimSuffix(v, "/")
-			}
-		}
-	}
-	return ""
+	return misc.AntigravityLoadCodeAssistUserAgent(antigravityauth.ConfiguredUserAgent(auth))
 }
 
 func geminiToAntigravity(modelName string, payload []byte, projectID string, derivedSessionIDs ...string) []byte {
