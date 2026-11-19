@@ -215,13 +215,13 @@ func (b *Builder) WithLocalManagementPassword(password string) *Builder {
 	return b
 }
 
-// WithPostAuthHook registers a hook to be called after an Auth record is created
-// but before it is persisted to storage.
 func (b *Builder) WithAntigravityCLILogin() *Builder {
 	b.antigravityCLILogin = defaultAntigravityCLILoginDeps()
 	return b
 }
 
+// WithPostAuthHook registers a hook to be called after an Auth record is created
+// but before it is persisted to storage.
 func (b *Builder) WithPostAuthHook(hook coreauth.PostAuthHook) *Builder {
 	if hook == nil {
 		return b
