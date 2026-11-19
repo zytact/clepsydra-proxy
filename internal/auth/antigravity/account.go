@@ -3,11 +3,16 @@ package antigravity
 import (
 	"strings"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
 func ConfiguredUserAgent(account *cliproxyauth.Auth) string {
 	return accountSetting(account, "user_agent")
+}
+
+func RequestUserAgent(account *cliproxyauth.Auth) string {
+	return misc.AntigravityRequestUserAgent(ConfiguredUserAgent(account))
 }
 
 func CustomBaseURL(account *cliproxyauth.Auth) string {

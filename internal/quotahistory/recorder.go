@@ -12,7 +12,6 @@ import (
 
 	"github.com/MoeForge/moego/json"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
-	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
@@ -65,7 +64,7 @@ func defaultSources() map[string]usageSource {
 			body:   antigravityQuotaBody,
 			headers: func(account *auth.Auth, header http.Header) {
 				header.Set("Content-Type", "application/json")
-				header.Set("User-Agent", misc.AntigravityRequestUserAgent(antigravity.ConfiguredUserAgent(account)))
+				header.Set("User-Agent", antigravity.RequestUserAgent(account))
 			},
 			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseAntigravityQuota(body) },
 		},

@@ -672,7 +672,7 @@ func resolveHost(base string) string {
 }
 
 func resolveUserAgent(auth *cliproxyauth.Auth) string {
-	return misc.AntigravityRequestUserAgent(antigravityauth.ConfiguredUserAgent(auth))
+	return antigravityauth.RequestUserAgent(auth)
 }
 
 func resolveLoadCodeAssistUserAgent(auth *cliproxyauth.Auth) string {

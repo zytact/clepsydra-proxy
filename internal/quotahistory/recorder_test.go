@@ -206,6 +206,19 @@ func TestPollReportsTheFirstHostErrorWhenEveryHostFails(t *testing.T) {
 	}
 }
 
+func TestPollReportsALaterAuthErrorOverTheFirstHostError(t *testing.T) {
+	daily := respond(http.StatusServiceUnavailable, "")
+	defer daily.Close()
+	prod := respond(http.StatusUnauthorized, "")
+	defer prod.Close()
+
+	reading := pollAntigravity(t, antigravityAccount(map[string]any{}), daily.URL, prod.URL)
+
+	if reading.Error != "usage request returned status 401" {
+		t.Fatalf("reading error = %q", reading.Error)
+	}
+}
+
 func TestAntigravityQuotaURLsPinACustomBaseURL(t *testing.T) {
 	custom := antigravityAccount(map[string]any{"base_url": "https://example.test/"})
 	if got := antigravityQuotaURLs(custom); len(got) != 1 || got[0] != "https://example.test/v1internal:retrieveUserQuotaSummary" {
