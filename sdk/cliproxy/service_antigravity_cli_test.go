@@ -2,6 +2,7 @@ package cliproxy
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -11,71 +12,83 @@ import (
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
-func init() {
-	readAntigravityCLILogin = func() (*antigravity.CLILogin, error) { return nil, antigravity.ErrCLILoginNotFound }
+func TestMain(m *testing.M) {
+	home, errTemp := os.MkdirTemp("", "cliproxy-test-home-")
+	if errTemp != nil {
+		panic(errTemp)
+	}
+	_ = os.Setenv("HOME", home)
+	code := m.Run()
+	_ = os.RemoveAll(home)
+	os.Exit(code)
 }
 
-func stubAntigravityCLILogin(t *testing.T, login **antigravity.CLILogin) *int {
-	t.Helper()
-	prepares := 0
-	previousRead, previousPrepare := readAntigravityCLILogin, prepareAntigravityCLIAuth
-	readAntigravityCLILogin = func() (*antigravity.CLILogin, error) {
-		if *login == nil {
-			return nil, antigravity.ErrCLILoginNotFound
-		}
-		copied := **login
-		return &copied, nil
-	}
-	prepareAntigravityCLIAuth = func(_ context.Context, _ *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error) {
-		prepares++
-		prepared := auth.Clone()
-		prepared.Metadata["project_id"] = "project-1"
-		return prepared, nil
-	}
-	t.Cleanup(func() { readAntigravityCLILogin, prepareAntigravityCLIAuth = previousRead, previousPrepare })
-	return &prepares
+type fakeAntigravityCLI struct {
+	login     *antigravity.CLILogin
+	discovers int
 }
 
-func TestSyncAntigravityCLILoginTracksTheCLI(t *testing.T) {
-	login := &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh-1", Email: "cli@example.com", Expiry: time.Now().Add(time.Hour)}
-	prepares := stubAntigravityCLILogin(t, &login)
-	svc := &Service{cfg: &config.Config{}, coreManager: coreauth.NewManager(nil, nil, nil)}
+func (f *fakeAntigravityCLI) source() antigravityCLILoginSource {
+	return antigravityCLILoginSource{
+		read: func() (*antigravity.CLILogin, error) {
+			if f.login == nil {
+				return nil, antigravity.ErrCLILoginNotFound
+			}
+			copied := *f.login
+			return &copied, nil
+		},
+		discover: func(_ context.Context, _ *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error) {
+			f.discovers++
+			prepared := auth.Clone()
+			prepared.Metadata["project_id"] = "project-1"
+			return prepared, nil
+		},
+	}
+}
+
+func newAntigravityCLILoop(cfg *config.Config, fake *fakeAntigravityCLI) (*Service, *antigravityCLILoginLoop) {
+	svc := &Service{cfg: cfg, coreManager: coreauth.NewManager(nil, nil, nil)}
+	return svc, &antigravityCLILoginLoop{service: svc, source: fake.source()}
+}
+
+func TestAntigravityCLILoginLoopTracksTheCLI(t *testing.T) {
+	fake := &fakeAntigravityCLI{login: &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh-1", Email: "cli@example.com", Expiry: time.Now().Add(time.Hour)}}
+	svc, loop := newAntigravityCLILoop(&config.Config{}, fake)
 	ctx := context.Background()
 
-	svc.syncAntigravityCLILogin(ctx)
+	loop.sync(ctx)
 	auth, ok := svc.coreManager.GetByID(antigravityCLIAuthID)
-	if !ok || !auth.QuotaOnly || auth.Provider != "antigravity" || auth.Metadata["project_id"] != "project-1" || auth.Metadata["email"] != "cli@example.com" {
+	if !ok || !auth.QuotaOnly || auth.Provider != "antigravity" || auth.MetadataString("project_id") != "project-1" || auth.MetadataString("email") != "cli@example.com" {
 		t.Fatalf("registered auth = %+v", auth)
 	}
 	if models := registry.GetGlobalRegistry().GetModelsForClient(antigravityCLIAuthID); len(models) != 0 {
 		t.Fatalf("quota-only auth registered models %v", models)
 	}
 
-	svc.syncAntigravityCLILogin(ctx)
-	if *prepares != 1 {
-		t.Fatalf("unchanged login re-ran project discovery %d times", *prepares)
+	loop.sync(ctx)
+	if fake.discovers != 1 {
+		t.Fatalf("unchanged login re-ran project discovery %d times", fake.discovers)
 	}
 
-	login.RefreshToken = "refresh-2"
-	svc.syncAntigravityCLILogin(ctx)
-	if auth, _ = svc.coreManager.GetByID(antigravityCLIAuthID); auth.Metadata["refresh_token"] != "refresh-2" {
-		t.Fatalf("new CLI login not picked up: %v", auth.Metadata["refresh_token"])
+	fake.login.RefreshToken = "refresh-2"
+	loop.sync(ctx)
+	if auth, _ = svc.coreManager.GetByID(antigravityCLIAuthID); auth.MetadataString("refresh_token") != "refresh-2" {
+		t.Fatalf("new CLI login not picked up: %v", auth.MetadataString("refresh_token"))
 	}
 
-	login = nil
-	svc.syncAntigravityCLILogin(ctx)
+	fake.login = nil
+	loop.sync(ctx)
 	if _, ok = svc.coreManager.GetByID(antigravityCLIAuthID); ok {
 		t.Fatal("auth kept after the CLI signed out")
 	}
 }
 
-func TestSyncAntigravityCLILoginHonorsConfigToggle(t *testing.T) {
-	login := &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh", Email: "cli@example.com"}
-	stubAntigravityCLILogin(t, &login)
+func TestAntigravityCLILoginLoopHonorsConfigToggle(t *testing.T) {
 	disabled := false
-	svc := &Service{cfg: &config.Config{Antigravity: config.AntigravityConfig{CLILoginQuota: &disabled}}, coreManager: coreauth.NewManager(nil, nil, nil)}
+	fake := &fakeAntigravityCLI{login: &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh", Email: "cli@example.com"}}
+	svc, loop := newAntigravityCLILoop(&config.Config{Antigravity: config.AntigravityConfig{CLILoginQuota: &disabled}}, fake)
 
-	svc.syncAntigravityCLILogin(context.Background())
+	loop.sync(context.Background())
 	if _, ok := svc.coreManager.GetByID(antigravityCLIAuthID); ok {
 		t.Fatal("auth registered while cli-login-quota is false")
 	}

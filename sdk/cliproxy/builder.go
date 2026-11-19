@@ -339,6 +339,7 @@ func (b *Builder) Build() (*Service, error) {
 		discoveryManager:      newDiscoveryAdvertiserManager(),
 		appliedRoutingState:   appliedRoutingState,
 		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
+		antigravityCLILogin:   defaultAntigravityCLILoginSource(),
 	}
 	service.proxyPoolPublisher = helps.RegisterProxyPoolPublisher()
 	helps.AdvanceProxyPoolGeneration(service.proxyPoolPublisher, service.cfg)

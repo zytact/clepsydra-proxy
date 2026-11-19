@@ -143,6 +143,10 @@ func authAttribute(auth *Auth, key string) string {
 	return strings.TrimSpace(auth.Attributes[key])
 }
 
+func (a *Auth) MetadataString(key string) string {
+	return authMetadataString(a, key)
+}
+
 func authMetadataString(auth *Auth, key string) string {
 	if auth == nil || auth.Metadata == nil {
 		return ""

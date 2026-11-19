@@ -3,7 +3,6 @@ package cliproxy
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
@@ -16,23 +15,39 @@ import (
 
 const (
 	antigravityCLIAuthID       = "antigravity-cli"
-	antigravityCLILoginSource  = "antigravity-cli"
+	antigravityCLILoginOrigin  = "antigravity-cli"
 	antigravityCLIPollInterval = time.Minute
 )
 
-var (
-	readAntigravityCLILogin   = antigravity.ReadCLILogin
-	prepareAntigravityCLIAuth = func(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error) {
-		return executor.NewAntigravityExecutor(cfg).PrepareRequestAuth(ctx, auth)
+type antigravityCLILoginSource struct {
+	read     func() (*antigravity.CLILogin, error)
+	discover func(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error)
+}
+
+func defaultAntigravityCLILoginSource() antigravityCLILoginSource {
+	return antigravityCLILoginSource{
+		read: antigravity.ReadCLILogin,
+		discover: func(ctx context.Context, cfg *config.Config, auth *coreauth.Auth) (*coreauth.Auth, error) {
+			return executor.NewAntigravityExecutor(cfg).PrepareRequestAuth(ctx, auth)
+		},
 	}
-)
+}
+
+type antigravityCLILoginLoop struct {
+	service *Service
+	source  antigravityCLILoginSource
+}
 
 func (s *Service) startAntigravityCLILogin(ctx context.Context) {
+	if s.antigravityCLILogin.read == nil {
+		return
+	}
+	loop := &antigravityCLILoginLoop{service: s, source: s.antigravityCLILogin}
 	go func() {
 		ticker := time.NewTicker(antigravityCLIPollInterval)
 		defer ticker.Stop()
 		for {
-			s.syncAntigravityCLILogin(ctx)
+			loop.sync(ctx)
 			select {
 			case <-ctx.Done():
 				return
@@ -42,18 +57,19 @@ func (s *Service) startAntigravityCLILogin(ctx context.Context) {
 	}()
 }
 
-func (s *Service) syncAntigravityCLILogin(ctx context.Context) {
+func (l *antigravityCLILoginLoop) sync(ctx context.Context) {
+	s := l.service
 	if s == nil || s.coreManager == nil || ctx.Err() != nil {
 		return
 	}
 	existing, exists := s.coreManager.GetByID(antigravityCLIAuthID)
 	if !s.antigravityCLILoginEnabled() {
-		s.removeAntigravityCLILogin(ctx, exists)
+		l.remove(ctx, exists)
 		return
 	}
-	login, errRead := readAntigravityCLILogin()
+	login, errRead := l.source.read()
 	if errors.Is(errRead, antigravity.ErrCLILoginNotFound) {
-		s.removeAntigravityCLILogin(ctx, exists)
+		l.remove(ctx, exists)
 		return
 	}
 	if errRead != nil {
@@ -63,12 +79,12 @@ func (s *Service) syncAntigravityCLILogin(ctx context.Context) {
 	unchanged := exists && existing != nil && sameAntigravityCLILogin(existing, login)
 	auth := newAntigravityCLIAuth(login, time.Now())
 	if unchanged {
-		if metadataString(existing.Metadata, "project_id") != "" {
+		if existing.MetadataString("project_id") != "" {
 			return
 		}
 		auth = existing.Clone()
 	}
-	auth, projectFound := s.ensureAntigravityCLIProject(ctx, auth)
+	auth, projectFound := l.ensureProject(ctx, auth)
 	if !projectFound && unchanged {
 		return
 	}
@@ -79,11 +95,11 @@ func (s *Service) syncAntigravityCLILogin(ctx context.Context) {
 	s.emitAuthUpdate(ctx, watcher.AuthUpdate{Action: action, ID: auth.ID, Auth: auth})
 }
 
-func (s *Service) removeAntigravityCLILogin(ctx context.Context, exists bool) {
+func (l *antigravityCLILoginLoop) remove(ctx context.Context, exists bool) {
 	if !exists {
 		return
 	}
-	s.emitAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: antigravityCLIAuthID})
+	l.service.emitAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: antigravityCLIAuthID})
 }
 
 func (s *Service) antigravityCLILoginEnabled() bool {
@@ -92,14 +108,14 @@ func (s *Service) antigravityCLILoginEnabled() bool {
 	return s.cfg == nil || s.cfg.Antigravity.CLILoginQuotaEnabled()
 }
 
-func (s *Service) ensureAntigravityCLIProject(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, bool) {
-	if metadataString(auth.Metadata, "project_id") != "" {
+func (l *antigravityCLILoginLoop) ensureProject(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, bool) {
+	if auth.MetadataString("project_id") != "" {
 		return auth, true
 	}
-	s.cfgMu.RLock()
-	cfg := s.cfg
-	s.cfgMu.RUnlock()
-	prepared, errPrepare := prepareAntigravityCLIAuth(ctx, cfg, auth)
+	l.service.cfgMu.RLock()
+	cfg := l.service.cfg
+	l.service.cfgMu.RUnlock()
+	prepared, errPrepare := l.source.discover(ctx, cfg, auth)
 	if errPrepare != nil {
 		log.WithError(errPrepare).Warn("antigravity cli login: project discovery failed")
 		return auth, false
@@ -107,12 +123,11 @@ func (s *Service) ensureAntigravityCLIProject(ctx context.Context, auth *coreaut
 	if prepared == nil {
 		return auth, false
 	}
-	return prepared, metadataString(prepared.Metadata, "project_id") != ""
+	return prepared, prepared.MetadataString("project_id") != ""
 }
 
 func sameAntigravityCLILogin(auth *coreauth.Auth, login *antigravity.CLILogin) bool {
-	return metadataString(auth.Metadata, "refresh_token") == login.RefreshToken &&
-		metadataString(auth.Metadata, "email") == login.Email
+	return auth.MetadataString("refresh_token") == login.RefreshToken && auth.MetadataString("email") == login.Email
 }
 
 func newAntigravityCLIAuth(login *antigravity.CLILogin, now time.Time) *coreauth.Auth {
@@ -140,15 +155,10 @@ func newAntigravityCLIAuth(login *antigravity.CLILogin, now time.Time) *coreauth
 		QuotaOnly: true,
 		Attributes: map[string]string{
 			coreauth.AttributeRuntimeOnly: "true",
-			coreauth.AttributeLoginSource: antigravityCLILoginSource,
+			coreauth.AttributeLoginSource: antigravityCLILoginOrigin,
 		},
 		Metadata:  metadata,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-}
-
-func metadataString(metadata map[string]any, key string) string {
-	value, _ := metadata[key].(string)
-	return strings.TrimSpace(value)
 }
