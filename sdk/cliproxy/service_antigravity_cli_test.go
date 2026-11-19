@@ -3,7 +3,6 @@ package cliproxy
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 
@@ -13,17 +12,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
-
-func TestMain(m *testing.M) {
-	home, errTemp := os.MkdirTemp("", "cliproxy-test-home-")
-	if errTemp != nil {
-		panic(errTemp)
-	}
-	_ = os.Setenv("HOME", home)
-	code := m.Run()
-	_ = os.RemoveAll(home)
-	os.Exit(code)
-}
 
 type fakeAntigravityCLI struct {
 	login     *antigravity.CLILogin
@@ -132,5 +120,22 @@ func TestAntigravityCLILoginBypassesTheWatcher(t *testing.T) {
 	loop.sync(context.Background())
 	if watcherDispatches != 0 {
 		t.Fatalf("watcher received %d CLI login updates; its rescans would replay stale tokens", watcherDispatches)
+	}
+}
+
+func TestBuilderLeavesTheCLILoginOffUnlessAsked(t *testing.T) {
+	plain, errPlain := NewBuilder().WithConfig(&config.Config{}).WithConfigPath(t.TempDir() + "/config.yaml").Build()
+	if errPlain != nil {
+		t.Fatal(errPlain)
+	}
+	if plain.antigravityCLILogin.read != nil {
+		t.Fatal("a plain Builder wires the real Antigravity CLI login reader")
+	}
+	opted, errOpted := NewBuilder().WithConfig(&config.Config{}).WithConfigPath(t.TempDir() + "/config.yaml").WithAntigravityCLILogin().Build()
+	if errOpted != nil {
+		t.Fatal(errOpted)
+	}
+	if opted.antigravityCLILogin.read == nil {
+		t.Fatal("WithAntigravityCLILogin did not wire the reader")
 	}
 }
