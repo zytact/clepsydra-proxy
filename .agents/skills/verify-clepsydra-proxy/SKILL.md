@@ -38,6 +38,8 @@ Healthy: a base URL, a JSON config whose `server.port` is 18317, and the startup
 
 `api.sh <METHOD> <path under /v8/management> [curl args...]` calls the instance with its own key. `fake-claude.sh <name> [--expired] [--offline]` writes a fake Claude account: `--expired` sets the access token to have expired an hour ago, and `--offline` routes the account through a closed local port so every upstream dial fails, as it does before DNS is up.
 
+`fake-antigravity.sh <name> [--expired] [--base-url URL]` writes a fake Antigravity account. `quota-stub.py <port> [status] [request-log]` is a local stand-in for Google's quota endpoint, and an account whose `base_url` points at it gets real quota windows. [features/quota-history.md](features/quota-history.md) shows both.
+
 ```bash
 $P/api.sh GET /credentials                      # accounts the instance holds
 $P/fake-claude.sh alpha                          # fake Claude account, token valid for 8 hours
