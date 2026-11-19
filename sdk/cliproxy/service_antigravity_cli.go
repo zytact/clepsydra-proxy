@@ -112,14 +112,14 @@ func (l *antigravityCLILoginLoop) sync(ctx context.Context) {
 	if exists {
 		action = watcher.AuthUpdateActionModify
 	}
-	s.emitAuthUpdate(ctx, watcher.AuthUpdate{Action: action, ID: auth.ID, Auth: auth})
+	s.handleAuthUpdate(ctx, watcher.AuthUpdate{Action: action, ID: auth.ID, Auth: auth})
 }
 
 func (l *antigravityCLILoginLoop) remove(ctx context.Context, exists bool) {
 	if !exists {
 		return
 	}
-	l.service.emitAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: antigravityCLIAuthID})
+	l.service.handleAuthUpdate(ctx, watcher.AuthUpdate{Action: watcher.AuthUpdateActionDelete, ID: antigravityCLIAuthID})
 }
 
 func (s *Service) antigravityCLILoginEnabled() bool {

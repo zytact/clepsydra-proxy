@@ -10,6 +10,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/watcher"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 )
 
@@ -114,5 +115,22 @@ func TestAntigravityCLILoginLoopDropsAnUnreadableLogin(t *testing.T) {
 	}
 	if loop.state != antigravityCLILoginUnreadable {
 		t.Fatalf("state = %q, want %q", loop.state, antigravityCLILoginUnreadable)
+	}
+}
+
+func TestAntigravityCLILoginBypassesTheWatcher(t *testing.T) {
+	fake := &fakeAntigravityCLI{login: &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh", Email: "cli@example.com"}}
+	svc, loop := newAntigravityCLILoop(&config.Config{}, fake)
+	watcherDispatches := 0
+	svc.setWatcher(&WatcherWrapper{dispatchRuntimeUpdate: func(watcher.AuthUpdate) bool {
+		watcherDispatches++
+		return true
+	}})
+
+	loop.sync(context.Background())
+	fake.login = nil
+	loop.sync(context.Background())
+	if watcherDispatches != 0 {
+		t.Fatalf("watcher received %d CLI login updates; its rescans would replay stale tokens", watcherDispatches)
 	}
 }
