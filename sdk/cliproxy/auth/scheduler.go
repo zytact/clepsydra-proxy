@@ -198,7 +198,7 @@ func (s *authScheduler) setSelector(selector Selector) {
 // isSchedulableAuth determines whether an auth can be scheduled by a provider scheduler,
 // returning its normalized ID and providerKey.
 func isSchedulableAuth(auth *Auth) (string, string, bool) {
-	if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+	if auth == nil || auth.RoutingExcluded() {
 		return "", "", false
 	}
 	authID := strings.TrimSpace(auth.ID)
@@ -943,7 +943,7 @@ func (s *authScheduler) upsertAuthRebuildLocked(auth *Auth, existingMetas map[st
 	}
 
 	providerKey := executorKeyFromAuth(authToSchedule)
-	if providerKey == "" || authToSchedule.Disabled || authToSchedule.Status == StatusDisabled {
+	if providerKey == "" || authToSchedule.RoutingExcluded() {
 		s.removeAuthFromProvidersLocked(authID)
 		return
 	}
@@ -998,7 +998,7 @@ func (s *authScheduler) upsertAuthLifecycleLocked(auth *Auth, now time.Time) {
 	}
 
 	providerKey := executorKeyFromAuth(auth)
-	if providerKey == "" || auth.Disabled || auth.Status == StatusDisabled {
+	if providerKey == "" || auth.RoutingExcluded() {
 		s.removeAuthFromProvidersLocked(authID)
 		return
 	}
@@ -1021,7 +1021,7 @@ func isCredentialBlocked(auth *Auth, supportedModelCount int, now time.Time) boo
 	if auth == nil {
 		return true
 	}
-	if auth.Disabled || auth.Status == StatusDisabled {
+	if auth.RoutingExcluded() {
 		return true
 	}
 	if hasUnauthorizedAuthFailure(auth) {
@@ -1082,7 +1082,7 @@ func (s *authScheduler) upsertAuthResultLocked(auth *Auth, targetModels []string
 		updatedAt:  auth.UpdatedAt,
 	}
 
-	if providerKey == "" || auth.Disabled || auth.Status == StatusDisabled {
+	if providerKey == "" || auth.RoutingExcluded() {
 		s.removeAuthFromProvidersLocked(authID)
 		return
 	}

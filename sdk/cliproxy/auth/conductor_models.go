@@ -237,7 +237,7 @@ func (m *Manager) clientModelProjectionForAuth(auth *Auth, routeModel string, no
 	}
 
 	state := existingModelState(auth, targetKey)
-	authDisabled := auth.Disabled || auth.Status == StatusDisabled
+	authDisabled := auth.RoutingExcluded()
 	stateDisabled := state != nil && state.Status == StatusDisabled
 	terminalUnauthorized := hasUnauthorizedAuthFailure(auth)
 	openEnded := authDisabled || stateDisabled || terminalUnauthorized

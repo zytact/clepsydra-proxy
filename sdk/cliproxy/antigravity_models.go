@@ -616,7 +616,7 @@ func (s *Service) refreshAntigravityModels(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if auth == nil || auth.Disabled || !strings.EqualFold(auth.Provider, "antigravity") {
+		if auth == nil || auth.Disabled || coreauth.IsQuotaOnlyAuth(auth) || !strings.EqualFold(auth.Provider, "antigravity") {
 			continue
 		}
 		snapshot := auth.Clone()
@@ -651,7 +651,7 @@ func (s *Service) nextAntigravityModelRefreshDelay() time.Duration {
 		return antigravityRefreshScanInterval
 	}
 	for _, auth := range s.coreManager.List() {
-		if auth == nil || auth.Disabled || !strings.EqualFold(auth.Provider, "antigravity") {
+		if auth == nil || auth.Disabled || coreauth.IsQuotaOnlyAuth(auth) || !strings.EqualFold(auth.Provider, "antigravity") {
 			continue
 		}
 		key := s.antigravityCapabilityKey(auth)

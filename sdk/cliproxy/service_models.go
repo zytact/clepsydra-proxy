@@ -44,16 +44,16 @@ func (s *Service) registerModelsForAuthWithConfigAndCache(ctx context.Context, c
 	// not overwrite or remove the newer registration when it finishes last.
 	fence := newModelRegistrationFence(a, cfg)
 	s.cancelStaleAntigravityProbes(a.ID)
-	if a.Disabled {
+	if a.Disabled || coreauth.IsQuotaOnlyAuth(a) {
 		if s != nil && s.coreManager != nil {
-			if current, ok := s.coreManager.GetByID(a.ID); ok && current != nil && !current.Disabled {
+			if current, ok := s.coreManager.GetByID(a.ID); ok && current != nil && !current.Disabled && !coreauth.IsQuotaOnlyAuth(current) {
 				return false
 			}
 		}
 		return s.unregisterModelsForAuthFenced(a, fence)
 	}
 	if s != nil && s.coreManager != nil {
-		if current, ok := s.coreManager.GetByID(a.ID); !ok || current == nil || current.Disabled {
+		if current, ok := s.coreManager.GetByID(a.ID); !ok || current == nil || current.Disabled || coreauth.IsQuotaOnlyAuth(current) {
 			return true
 		}
 	}

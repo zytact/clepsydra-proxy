@@ -1256,7 +1256,7 @@ func isAuthBlockedForModelForRequest(ctx context.Context, auth *Auth, model stri
 	if auth == nil {
 		return true, blockReasonOther, time.Time{}
 	}
-	if auth.Disabled || auth.Status == StatusDisabled {
+	if auth.RoutingExcluded() {
 		return true, blockReasonDisabled, time.Time{}
 	}
 	if codexRefreshMissingAccessForRequest(ctx, auth, clientHeaders...) {
@@ -1476,7 +1476,7 @@ func isAuthBlockedByQuotaOrAuthForModelForRequest(ctx context.Context, auth *Aut
 	if auth == nil {
 		return true
 	}
-	if auth.Disabled || auth.Status == StatusDisabled {
+	if auth.RoutingExcluded() {
 		return true
 	}
 	if codexRefreshMissingAccessForRequest(ctx, auth, clientHeaders...) {
