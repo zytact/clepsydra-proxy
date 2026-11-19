@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MoeForge/moego/json"
 	"github.com/gin-gonic/gin"
@@ -136,5 +137,49 @@ func TestAPICallRejectsQuotaOnlyCredentialOutsideTheAllowlist(t *testing.T) {
 	rec := serveQuotaOnly(h.APICall, http.MethodPost, "/v8/management/api-call", body)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("api-call status %d, want %d: %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+}
+
+func TestAPICallRejectsQuotaOnlyHostOverride(t *testing.T) {
+	h, manager := newQuotaOnlyHandler(t)
+	auth, _ := manager.GetByID("antigravity-cli")
+	body := `{"method":"POST","url":"https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist","auth_index":"` + auth.EnsureIndex() + `","header":{"Host":"evil.example.com","Authorization":"Bearer $TOKEN$"}}`
+	rec := serveQuotaOnly(h.APICall, http.MethodPost, "/v8/management/api-call", body)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("api-call status %d, want %d: %s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+}
+
+func TestAPICallDoesNotFollowQuotaOnlyRedirects(t *testing.T) {
+	redirectedTo := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/elsewhere" {
+			redirectedTo++
+			return
+		}
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+
+	h, manager := newQuotaOnlyHandler(t)
+	auth, _ := manager.GetByID("antigravity-cli")
+	updated := auth.Clone()
+	updated.Attributes["base_url"] = server.URL
+	updated.Metadata["access_token"] = "access"
+	updated.Metadata["expired"] = time.Now().Add(time.Hour).Format(time.RFC3339)
+	if _, errUpdate := manager.Update(coreauth.WithSkipPersist(context.Background()), updated); errUpdate != nil {
+		t.Fatal(errUpdate)
+	}
+	body := `{"method":"POST","url":"` + server.URL + `/v1internal:retrieveUserQuotaSummary","auth_index":"` + updated.EnsureIndex() + `","header":{"Authorization":"Bearer $TOKEN$"}}`
+	rec := serveQuotaOnly(h.APICall, http.MethodPost, "/v8/management/api-call", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("api-call status %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp apiCallResponse
+	if errDecode := json.Unmarshal(rec.Body.Bytes(), &resp); errDecode != nil {
+		t.Fatal(errDecode)
+	}
+	if resp.StatusCode != http.StatusFound || redirectedTo != 0 {
+		t.Fatalf("upstream status %d, redirect followed %d times; want 302 and no follow", resp.StatusCode, redirectedTo)
 	}
 }

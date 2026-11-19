@@ -135,7 +135,8 @@ func (h *Handler) APICall(c *gin.Context) {
 
 	authIndex := firstNonEmptyString(body.AuthIndexSnake, body.AuthIndexCamel, body.AuthIndexPascal)
 	auth := h.authByIndex(authIndex)
-	if auth != nil && auth.QuotaOnly && !quotaOnlyAPICallAllowed(auth, method, parsedURL) {
+	quotaOnly := auth != nil && auth.QuotaOnly
+	if quotaOnly && (!quotaOnlyAPICallAllowed(auth, method, parsedURL) || hasHostHeader(body.Header)) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "quota-only credentials can only call Antigravity quota endpoints"})
 		return
 	}
@@ -218,6 +219,9 @@ func (h *Handler) APICall(c *gin.Context) {
 		Timeout: defaultAPICallTimeout,
 	}
 	httpClient.Transport = h.apiCallTransport(auth, requestProxyURL)
+	if quotaOnly {
+		httpClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 
 	resp, errDo := httpClient.Do(req)
 	if errDo != nil {
@@ -282,6 +286,15 @@ var (
 	}
 	quotaOnlyAPICallOperations = []string{"retrieveUserQuotaSummary", "loadCodeAssist", "fetchAvailableModels"}
 )
+
+func hasHostHeader(headers map[string]string) bool {
+	for key := range headers {
+		if strings.EqualFold(key, "host") {
+			return true
+		}
+	}
+	return false
+}
 
 func quotaOnlyAPICallAllowed(auth *coreauth.Auth, method string, target *url.URL) bool {
 	if method != http.MethodPost || target.RawQuery != "" || target.User != nil {
