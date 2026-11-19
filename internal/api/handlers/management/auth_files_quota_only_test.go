@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -94,5 +95,45 @@ func TestQuotaOnlyCredentialRejectsMutations(t *testing.T) {
 	current, ok := manager.GetByID("antigravity-cli")
 	if !ok || current.Disabled || current.Attributes["note"] != "" {
 		t.Fatalf("quota-only credential changed: ok=%v auth=%+v", ok, current)
+	}
+}
+
+func TestQuotaOnlyAPICallAllowlist(t *testing.T) {
+	auth := &coreauth.Auth{QuotaOnly: true, Attributes: map[string]string{"base_url": "https://proxy.example.com/agy/"}}
+	for target, want := range map[string]bool{
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary":         true,
+		"https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:retrieveUserQuotaSummary": true,
+		"https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary":               true,
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":                   true,
+		"https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels":                   true,
+		"https://proxy.example.com/agy/v1internal:retrieveUserQuotaSummary":                     true,
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent":            false,
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser":                      false,
+		"https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist?alt=sse":           false,
+		"http://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":                    false,
+		"https://evil.example.com/v1internal:retrieveUserQuotaSummary":                          false,
+		"https://user@cloudcode-pa.googleapis.com/v1internal:loadCodeAssist":                    false,
+	} {
+		parsed, errParse := url.Parse(target)
+		if errParse != nil {
+			t.Fatal(errParse)
+		}
+		if got := quotaOnlyAPICallAllowed(auth, http.MethodPost, parsed); got != want {
+			t.Errorf("POST %s allowed = %v, want %v", target, got, want)
+		}
+	}
+	parsed, _ := url.Parse("https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
+	if quotaOnlyAPICallAllowed(auth, http.MethodGet, parsed) {
+		t.Error("GET allowed for a quota-only credential")
+	}
+}
+
+func TestAPICallRejectsQuotaOnlyCredentialOutsideTheAllowlist(t *testing.T) {
+	h, manager := newQuotaOnlyHandler(t)
+	auth, _ := manager.GetByID("antigravity-cli")
+	body := `{"method":"POST","url":"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent","auth_index":"` + auth.EnsureIndex() + `","header":{"Authorization":"Bearer $TOKEN$"}}`
+	rec := serveQuotaOnly(h.APICall, http.MethodPost, "/v8/management/api-call", body)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("api-call status %d, want %d: %s", rec.Code, http.StatusForbidden, rec.Body.String())
 	}
 }

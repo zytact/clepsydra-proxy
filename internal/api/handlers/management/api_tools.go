@@ -135,6 +135,10 @@ func (h *Handler) APICall(c *gin.Context) {
 
 	authIndex := firstNonEmptyString(body.AuthIndexSnake, body.AuthIndexCamel, body.AuthIndexPascal)
 	auth := h.authByIndex(authIndex)
+	if auth != nil && auth.QuotaOnly && !quotaOnlyAPICallAllowed(auth, method, parsedURL) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "quota-only credentials can only call Antigravity quota endpoints"})
+		return
+	}
 
 	reqHeaders := body.Header
 	if reqHeaders == nil {
@@ -268,6 +272,34 @@ func tokenValueForAuth(auth *coreauth.Auth) string {
 		}
 	}
 	return ""
+}
+
+var (
+	quotaOnlyAPICallBases = []string{
+		"https://daily-cloudcode-pa.googleapis.com",
+		"https://daily-cloudcode-pa.sandbox.googleapis.com",
+		"https://cloudcode-pa.googleapis.com",
+	}
+	quotaOnlyAPICallOperations = []string{"retrieveUserQuotaSummary", "loadCodeAssist", "fetchAvailableModels"}
+)
+
+func quotaOnlyAPICallAllowed(auth *coreauth.Auth, method string, target *url.URL) bool {
+	if method != http.MethodPost || target.RawQuery != "" || target.User != nil {
+		return false
+	}
+	bases := quotaOnlyAPICallBases
+	if custom := strings.TrimSuffix(firstNonEmpty(authAttribute(auth, "base_url"), auth.MetadataString("base_url")), "/"); custom != "" {
+		bases = append(append([]string(nil), bases...), custom)
+	}
+	requested := target.Scheme + "://" + target.Host + target.EscapedPath()
+	for _, base := range bases {
+		for _, operation := range quotaOnlyAPICallOperations {
+			if requested == base+"/v1internal:"+operation {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (h *Handler) resolveTokenForAuth(ctx context.Context, auth *coreauth.Auth, requestProxyURL string) (string, error) {
