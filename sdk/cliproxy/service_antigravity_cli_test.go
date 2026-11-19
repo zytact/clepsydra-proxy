@@ -2,6 +2,7 @@ package cliproxy
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -25,12 +26,16 @@ func TestMain(m *testing.M) {
 
 type fakeAntigravityCLI struct {
 	login     *antigravity.CLILogin
+	readErr   error
 	discovers int
 }
 
 func (f *fakeAntigravityCLI) source() antigravityCLILoginSource {
 	return antigravityCLILoginSource{
 		read: func() (*antigravity.CLILogin, error) {
+			if f.readErr != nil {
+				return nil, f.readErr
+			}
 			if f.login == nil {
 				return nil, antigravity.ErrCLILoginNotFound
 			}
@@ -91,5 +96,23 @@ func TestAntigravityCLILoginLoopHonorsConfigToggle(t *testing.T) {
 	loop.sync(context.Background())
 	if _, ok := svc.coreManager.GetByID(antigravityCLIAuthID); ok {
 		t.Fatal("auth registered while cli-login-quota is false")
+	}
+}
+
+func TestAntigravityCLILoginLoopDropsAnUnreadableLogin(t *testing.T) {
+	fake := &fakeAntigravityCLI{login: &antigravity.CLILogin{AccessToken: "access", RefreshToken: "refresh", Email: "cli@example.com"}}
+	svc, loop := newAntigravityCLILoop(&config.Config{}, fake)
+	loop.sync(context.Background())
+	if _, ok := svc.coreManager.GetByID(antigravityCLIAuthID); !ok {
+		t.Fatal("auth not registered")
+	}
+
+	fake.readErr = errors.New("parse antigravity cli login: refresh token missing")
+	loop.sync(context.Background())
+	if _, ok := svc.coreManager.GetByID(antigravityCLIAuthID); ok {
+		t.Fatal("stale auth kept after the CLI login became unreadable")
+	}
+	if loop.state != antigravityCLILoginUnreadable {
+		t.Fatalf("state = %q, want %q", loop.state, antigravityCLILoginUnreadable)
 	}
 }

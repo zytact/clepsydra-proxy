@@ -33,9 +33,22 @@ func defaultAntigravityCLILoginSource() antigravityCLILoginSource {
 	}
 }
 
+type antigravityCLILoginState string
+
+const (
+	antigravityCLILoginDisabled       antigravityCLILoginState = "disabled"
+	antigravityCLILoginAbsent         antigravityCLILoginState = "absent"
+	antigravityCLILoginUnreadable     antigravityCLILoginState = "unreadable"
+	antigravityCLILoginProjectMissing antigravityCLILoginState = "project-missing"
+	antigravityCLILoginReady          antigravityCLILoginState = "ready"
+)
+
+var errAntigravityCLIProjectMissing = errors.New("loadCodeAssist returned no project")
+
 type antigravityCLILoginLoop struct {
 	service *Service
 	source  antigravityCLILoginSource
+	state   antigravityCLILoginState
 }
 
 func (s *Service) startAntigravityCLILogin(ctx context.Context) {
@@ -65,15 +78,17 @@ func (l *antigravityCLILoginLoop) sync(ctx context.Context) {
 	existing, exists := s.coreManager.GetByID(antigravityCLIAuthID)
 	if !s.antigravityCLILoginEnabled() {
 		l.remove(ctx, exists)
+		l.report(antigravityCLILoginDisabled, nil)
 		return
 	}
 	login, errRead := l.source.read()
-	if errors.Is(errRead, antigravity.ErrCLILoginNotFound) {
-		l.remove(ctx, exists)
-		return
-	}
 	if errRead != nil {
-		log.WithError(errRead).Warn("antigravity cli login: read failed")
+		l.remove(ctx, exists)
+		if errors.Is(errRead, antigravity.ErrCLILoginNotFound) {
+			l.report(antigravityCLILoginAbsent, nil)
+		} else {
+			l.report(antigravityCLILoginUnreadable, errRead)
+		}
 		return
 	}
 	unchanged := exists && existing != nil && sameAntigravityCLILogin(existing, login)
@@ -84,8 +99,13 @@ func (l *antigravityCLILoginLoop) sync(ctx context.Context) {
 		}
 		auth = existing.Clone()
 	}
-	auth, projectFound := l.ensureProject(ctx, auth)
-	if !projectFound && unchanged {
+	auth, errProject := l.ensureProject(ctx, auth)
+	if errProject != nil {
+		l.report(antigravityCLILoginProjectMissing, errProject)
+	} else {
+		l.report(antigravityCLILoginReady, nil)
+	}
+	if errProject != nil && unchanged {
 		return
 	}
 	action := watcher.AuthUpdateActionAdd
@@ -108,22 +128,34 @@ func (s *Service) antigravityCLILoginEnabled() bool {
 	return s.cfg == nil || s.cfg.Antigravity.CLILoginQuotaEnabled()
 }
 
-func (l *antigravityCLILoginLoop) ensureProject(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, bool) {
+func (l *antigravityCLILoginLoop) report(state antigravityCLILoginState, err error) {
+	if state == l.state {
+		return
+	}
+	l.state = state
+	entry := log.WithField("state", state)
+	if err != nil {
+		entry.WithError(err).Warn("antigravity cli login changed state")
+		return
+	}
+	entry.Info("antigravity cli login changed state")
+}
+
+func (l *antigravityCLILoginLoop) ensureProject(ctx context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
 	if auth.MetadataString("project_id") != "" {
-		return auth, true
+		return auth, nil
 	}
 	l.service.cfgMu.RLock()
 	cfg := l.service.cfg
 	l.service.cfgMu.RUnlock()
 	prepared, errPrepare := l.source.discover(ctx, cfg, auth)
 	if errPrepare != nil {
-		log.WithError(errPrepare).Warn("antigravity cli login: project discovery failed")
-		return auth, false
+		return auth, errPrepare
 	}
-	if prepared == nil {
-		return auth, false
+	if prepared == nil || prepared.MetadataString("project_id") == "" {
+		return auth, errAntigravityCLIProjectMissing
 	}
-	return prepared, prepared.MetadataString("project_id") != ""
+	return prepared, nil
 }
 
 func sameAntigravityCLILogin(auth *coreauth.Auth, login *antigravity.CLILogin) bool {
