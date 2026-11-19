@@ -3,6 +3,7 @@ package quotahistory
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/MoeForge/moego/json"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/auth/antigravity"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
@@ -22,15 +24,13 @@ const (
 	requestTimeout = 20 * time.Second
 	maxBodyBytes   = 1 << 20
 
-	claudeUsageURL          = "https://api.anthropic.com/api/oauth/usage"
-	codexUsageURL           = "https://chatgpt.com/backend-api/wham/usage"
-	antigravityQuotaPath    = "/v1internal:retrieveUserQuotaSummary"
-	antigravityDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
-	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
+	claudeUsageURL       = "https://api.anthropic.com/api/oauth/usage"
+	codexUsageURL        = "https://chatgpt.com/backend-api/wham/usage"
+	antigravityQuotaPath = "/" + antigravity.APIVersion + ":retrieveUserQuotaSummary"
 )
 
 type usageSource struct {
-	urls    []string
+	urls    func(account *auth.Auth) []string
 	body    func(account *auth.Auth) ([]byte, error)
 	headers func(account *auth.Auth, header http.Header)
 	parse   func(body []byte, now time.Time) ([]Window, error)
@@ -39,7 +39,7 @@ type usageSource struct {
 func defaultSources() map[string]usageSource {
 	return map[string]usageSource{
 		"claude": {
-			urls: []string{claudeUsageURL},
+			urls: fixedURLs(claudeUsageURL),
 			headers: func(_ *auth.Auth, header http.Header) {
 				header.Set("anthropic-beta", "oauth-2025-04-20")
 				header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
@@ -47,7 +47,7 @@ func defaultSources() map[string]usageSource {
 			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseClaudeUsage(body) },
 		},
 		"codex": {
-			urls: []string{codexUsageURL},
+			urls: fixedURLs(codexUsageURL),
 			headers: func(account *auth.Auth, header http.Header) {
 				header.Set("User-Agent", "codex_cli_rs")
 				if accountID := metadataString(account, "account_id"); accountID != "" {
@@ -57,14 +57,11 @@ func defaultSources() map[string]usageSource {
 			parse: parseCodexUsage,
 		},
 		"antigravity": {
-			urls: []string{
-				antigravityDailyBaseURL + antigravityQuotaPath,
-				antigravityProdBaseURL + antigravityQuotaPath,
-			},
+			urls: antigravityQuotaURLs,
 			body: antigravityQuotaBody,
 			headers: func(account *auth.Auth, header http.Header) {
 				header.Set("Content-Type", "application/json")
-				header.Set("User-Agent", misc.AntigravityRequestUserAgent(configuredUserAgent(account)))
+				header.Set("User-Agent", misc.AntigravityRequestUserAgent(antigravity.ConfiguredUserAgent(account)))
 			},
 			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseAntigravityQuota(body) },
 		},
@@ -77,11 +74,31 @@ func antigravityQuotaBody(account *auth.Auth) ([]byte, error) {
 	}{Project: metadataString(account, "project_id")})
 }
 
-func configuredUserAgent(account *auth.Auth) string {
-	if userAgent := strings.TrimSpace(account.Attributes["user_agent"]); userAgent != "" {
-		return userAgent
+func fixedURLs(urls ...string) func(*auth.Auth) []string {
+	return func(*auth.Auth) []string { return urls }
+}
+
+func antigravityQuotaURLs(account *auth.Auth) []string {
+	if base := antigravity.CustomBaseURL(account); base != "" {
+		return []string{base + antigravityQuotaPath}
 	}
-	return metadataString(account, "user_agent")
+	return []string{
+		antigravity.DailyAPIEndpoint + antigravityQuotaPath,
+		antigravity.APIEndpoint + antigravityQuotaPath,
+	}
+}
+
+type statusError struct {
+	status int
+}
+
+func (e statusError) Error() string {
+	return fmt.Sprintf("usage request returned status %d", e.status)
+}
+
+func isAuthError(err error) bool {
+	var status statusError
+	return errors.As(err, &status) && (status.status == http.StatusUnauthorized || status.status == http.StatusForbidden)
 }
 
 type AuthLister interface {
@@ -153,21 +170,16 @@ func (r *Recorder) read(ctx context.Context, account *auth.Auth, source usageSou
 		AuthIndex: account.EnsureIndex(),
 		Email:     metadataString(account, "email"),
 	}
-	body, errFetch := r.fetch(ctx, account, source)
-	if errFetch != nil {
-		reading.Error = errFetch.Error()
-		return reading
-	}
-	windows, errParse := source.parse(body, reading.At)
-	if errParse != nil {
-		reading.Error = "unexpected usage response"
+	windows, errRead := r.readWindows(ctx, account, source, reading.At)
+	if errRead != nil {
+		reading.Error = errRead.Error()
 		return reading
 	}
 	reading.Windows = windows
 	return reading
 }
 
-func (r *Recorder) fetch(ctx context.Context, account *auth.Auth, source usageSource) ([]byte, error) {
+func (r *Recorder) readWindows(ctx context.Context, account *auth.Auth, source usageSource, at time.Time) ([]Window, error) {
 	token := account.CurrentAccessToken()
 	if token == "" {
 		return nil, fmt.Errorf("no access token")
@@ -183,15 +195,32 @@ func (r *Recorder) fetch(ctx context.Context, account *auth.Auth, source usageSo
 		}
 		payload = built
 	}
-	var errLast error
-	for _, url := range source.urls {
-		body, errFetch := r.fetchURL(ctx, account, source, url, token, payload)
-		if errFetch == nil {
-			return body, nil
+	var errFirst error
+	for _, url := range source.urls(account) {
+		windows, errURL := r.readURL(ctx, account, source, url, token, payload, at)
+		if errURL == nil {
+			return windows, nil
 		}
-		errLast = errFetch
+		if errFirst == nil {
+			errFirst = errURL
+		}
+		if isAuthError(errURL) {
+			return nil, errURL
+		}
 	}
-	return nil, errLast
+	return nil, errFirst
+}
+
+func (r *Recorder) readURL(ctx context.Context, account *auth.Auth, source usageSource, url, token string, payload []byte, at time.Time) ([]Window, error) {
+	body, errFetch := r.fetchURL(ctx, account, source, url, token, payload)
+	if errFetch != nil {
+		return nil, errFetch
+	}
+	windows, errParse := source.parse(body, at)
+	if errParse != nil {
+		return nil, errors.New("unexpected usage response")
+	}
+	return windows, nil
 }
 
 func (r *Recorder) fetchURL(ctx context.Context, account *auth.Auth, source usageSource, url, token string, payload []byte) ([]byte, error) {
@@ -226,7 +255,7 @@ func (r *Recorder) fetchURL(ctx context.Context, account *auth.Auth, source usag
 		return nil, fmt.Errorf("read usage response: %w", errRead)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("usage request returned status %d", response.StatusCode)
+		return nil, statusError{status: response.StatusCode}
 	}
 	return body, nil
 }
