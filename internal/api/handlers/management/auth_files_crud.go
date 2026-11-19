@@ -35,6 +35,10 @@ func (h *Handler) DownloadAuthFile(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "invalid name"})
 		return
 	}
+	if auth, _ := h.lookupAuthFile(name, ""); auth != nil && auth.QuotaOnly {
+		c.JSON(http.StatusConflict, gin.H{"error": errQuotaOnlyAuth.Error()})
+		return
+	}
 	if !strings.HasSuffix(strings.ToLower(name), ".json") {
 		c.JSON(400, gin.H{"error": "name must end with .json"})
 		return
@@ -537,6 +541,9 @@ func (h *Handler) deleteAuthFileByName(ctx context.Context, name string) (string
 	targetPath := filepath.Join(h.currentHandlerAuthDir(), filepath.Base(name))
 	targetID := ""
 	if targetAuth := h.findAuthForDelete(name); targetAuth != nil {
+		if targetAuth.QuotaOnly {
+			return filepath.Base(name), http.StatusConflict, errQuotaOnlyAuth
+		}
 		if !isPluginVirtualSourceDelete(name, targetAuth) {
 			return filepath.Base(name), http.StatusConflict, errPluginVirtualAuth
 		}

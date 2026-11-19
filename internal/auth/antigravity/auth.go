@@ -247,6 +247,29 @@ func (o *AntigravityAuth) FetchUserInfo(ctx context.Context, accessToken string)
 
 // FetchProjectID retrieves the project ID for the authenticated user via loadCodeAssist
 func (o *AntigravityAuth) FetchProjectID(ctx context.Context, accessToken string) (string, error) {
+	projectID, loadResp, errLoad := o.loadCodeAssist(ctx, accessToken)
+	if errLoad != nil {
+		return "", errLoad
+	}
+	if projectID != "" {
+		return projectID, nil
+	}
+	projectID, errOnboard := o.OnboardUser(ctx, accessToken, defaultAntigravityTierID(loadResp))
+	if errOnboard != nil {
+		return "", errOnboard
+	}
+	if projectID == "" {
+		return "", fmt.Errorf("project id not found in loadCodeAssist or onboardUser response")
+	}
+	return projectID, nil
+}
+
+func (o *AntigravityAuth) LookupProjectID(ctx context.Context, accessToken string) (string, error) {
+	projectID, _, errLoad := o.loadCodeAssist(ctx, accessToken)
+	return projectID, errLoad
+}
+
+func (o *AntigravityAuth) loadCodeAssist(ctx context.Context, accessToken string) (string, map[string]any, error) {
 	userAgent := o.shortUserAgent()
 	loadReqBody := map[string]any{
 		"metadata": antigravityLoadCodeAssistMetadata(),
@@ -254,13 +277,13 @@ func (o *AntigravityAuth) FetchProjectID(ctx context.Context, accessToken string
 
 	rawBody, errMarshal := json.Marshal(loadReqBody)
 	if errMarshal != nil {
-		return "", fmt.Errorf("marshal request body: %w", errMarshal)
+		return "", nil, fmt.Errorf("marshal request body: %w", errMarshal)
 	}
 
 	endpointURL := fmt.Sprintf("%s/%s:loadCodeAssist", DailyAPIEndpoint, APIVersion)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, strings.NewReader(string(rawBody)))
 	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
+		return "", nil, fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
@@ -268,7 +291,7 @@ func (o *AntigravityAuth) FetchProjectID(ctx context.Context, accessToken string
 
 	resp, errDo := o.httpClient.Do(req)
 	if errDo != nil {
-		return "", fmt.Errorf("execute request: %w", errDo)
+		return "", nil, fmt.Errorf("execute request: %w", errDo)
 	}
 	defer func() {
 		if errClose := resp.Body.Close(); errClose != nil {
@@ -278,11 +301,11 @@ func (o *AntigravityAuth) FetchProjectID(ctx context.Context, accessToken string
 
 	bodyBytes, errRead := io.ReadAll(resp.Body)
 	if errRead != nil {
-		return "", fmt.Errorf("read response: %w", errRead)
+		return "", nil, fmt.Errorf("read response: %w", errRead)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", &HTTPStatusError{
+		return "", nil, &HTTPStatusError{
 			StatusCodeValue: resp.StatusCode,
 			Message:         fmt.Sprintf("request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes))),
 		}
@@ -290,23 +313,10 @@ func (o *AntigravityAuth) FetchProjectID(ctx context.Context, accessToken string
 
 	var loadResp map[string]any
 	if errDecode := json.Unmarshal(bodyBytes, &loadResp); errDecode != nil {
-		return "", fmt.Errorf("decode response: %w", errDecode)
+		return "", nil, fmt.Errorf("decode response: %w", errDecode)
 	}
 
-	projectID := extractCloudaicompanionProject(loadResp)
-
-	if projectID == "" {
-		projectID, err = o.OnboardUser(ctx, accessToken, defaultAntigravityTierID(loadResp))
-		if err != nil {
-			return "", err
-		}
-		if projectID == "" {
-			return "", fmt.Errorf("project id not found in loadCodeAssist or onboardUser response")
-		}
-		return projectID, nil
-	}
-
-	return projectID, nil
+	return extractCloudaicompanionProject(loadResp), loadResp, nil
 }
 
 // OnboardUser attempts to fetch the project ID via onboardUser by polling for completion

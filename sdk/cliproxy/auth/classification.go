@@ -18,6 +18,7 @@ const (
 	AttributeCodexAlphaSearch     = "codex_alpha_search"
 	AttributeCodexDisableCloaking = "codex_disable_cloaking"
 	AttributeConfigIndex          = "config_index"
+	AttributeLoginSource          = "login_source"
 	AttributePath                 = "path"
 	AttributeRuntimeOnly          = "runtime_only"
 	AttributeSource               = "source"
@@ -131,11 +132,19 @@ func authHasOAuthMetadata(auth *Auth) bool {
 	return false
 }
 
+func (a *Auth) RoutingExcluded() bool {
+	return a.Disabled || a.Status == StatusDisabled || a.QuotaOnly
+}
+
 func authAttribute(auth *Auth, key string) string {
 	if auth == nil || auth.Attributes == nil {
 		return ""
 	}
 	return strings.TrimSpace(auth.Attributes[key])
+}
+
+func (a *Auth) MetadataString(key string) string {
+	return authMetadataString(a, key)
 }
 
 func authMetadataString(auth *Auth, key string) string {

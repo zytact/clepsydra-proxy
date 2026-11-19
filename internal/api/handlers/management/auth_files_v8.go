@@ -335,6 +335,10 @@ func (h *Handler) StartOAuthV8(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
 			return
 		}
+		if targetAuth.QuotaOnly {
+			c.JSON(http.StatusConflict, gin.H{"error": errQuotaOnlyAuth.Error()})
+			return
+		}
 		targetPath := ""
 		if targetAuth.Attributes != nil {
 			targetPath = strings.TrimSpace(targetAuth.Attributes[coreauth.AttributePath])

@@ -69,6 +69,10 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
 		return
 	}
+	if targetAuth.QuotaOnly {
+		c.JSON(http.StatusConflict, gin.H{"error": errQuotaOnlyAuth.Error()})
+		return
+	}
 	if coreauth.IsPluginVirtualAuth(targetAuth) {
 		// Allow status changes only when targeting the source auth file name, matching delete semantics.
 		// Expanded virtual project auths still cannot be modified independently.
@@ -330,6 +334,10 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 	}
 	if coreauth.IsPluginVirtualAuth(targetAuth) {
 		c.JSON(http.StatusConflict, gin.H{"error": errPluginVirtualAuth.Error()})
+		return
+	}
+	if targetAuth.QuotaOnly {
+		c.JSON(http.StatusConflict, gin.H{"error": errQuotaOnlyAuth.Error()})
 		return
 	}
 

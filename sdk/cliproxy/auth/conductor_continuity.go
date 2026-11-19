@@ -689,7 +689,7 @@ func (m *Manager) buildCodexContinuityCandidates(
 
 	out := make([]pluginapi.SchedulerContinuityCandidate, 0, len(m.auths))
 	for _, candidate := range m.auths {
-		if candidate == nil || candidate.Disabled || candidate.Status == StatusDisabled {
+		if candidate == nil || candidate.RoutingExcluded() {
 			continue
 		}
 		if canonicalSchedulingProvider(executorKeyFromAuth(candidate)) != "codex" {

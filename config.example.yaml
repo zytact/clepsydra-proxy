@@ -1258,6 +1258,11 @@ oauth:
       # Use credits as a last resort after free-tier Claude quota is exhausted.
       antigravity-credits: true
 
+      # Read the Antigravity CLI's own Google login (Windows Credential Manager entry
+      # "gemini:antigravity", or ~/.gemini/antigravity-cli/antigravity-oauth-token elsewhere)
+      # and show it as a quota-only credential. It is never used to serve requests.
+      # cli-login-quota: true
+
       # Signature cache validation for thinking blocks (Antigravity/Claude).
       # When true (default), cached signatures are preferred and validated.
       # When false, client signatures are used directly after normalization (bypass mode for testing).

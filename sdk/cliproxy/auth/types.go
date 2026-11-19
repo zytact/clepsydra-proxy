@@ -79,7 +79,8 @@ type Auth struct {
 	// StatusMessage holds a short description for the current status.
 	StatusMessage string `json:"status_message,omitempty"`
 	// Disabled indicates the auth is intentionally disabled by operator.
-	Disabled bool `json:"disabled"`
+	Disabled  bool `json:"disabled"`
+	QuotaOnly bool `json:"quota_only,omitempty"`
 	// Unavailable flags transient provider unavailability (e.g. quota exceeded).
 	Unavailable bool `json:"unavailable"`
 	// ProxyURL overrides the global proxy setting for this auth if provided.

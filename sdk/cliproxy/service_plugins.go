@@ -380,7 +380,7 @@ func (s *Service) registerModelRefreshCallback() {
 				continue
 			}
 			auth, ok := s.coreManager.GetByID(item.ID)
-			if !ok || auth == nil || auth.Disabled {
+			if !ok || auth == nil || auth.RoutingExcluded() {
 				continue
 			}
 			provider := strings.ToLower(strings.TrimSpace(auth.Provider))

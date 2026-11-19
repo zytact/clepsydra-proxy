@@ -9,7 +9,7 @@ if [ -f "$STATE_DIR/session.env" ]; then
   echo "A session already exists in $STATE_DIR. Run cleanup.sh first." >&2
   exit 1
 fi
-mkdir -p "$STATE_DIR/bin" "$STATE_DIR/run/auths"
+mkdir -p "$STATE_DIR/bin" "$STATE_DIR/run/auths" "$STATE_DIR/home"
 
 (cd "$REPO" && go build -o "$STATE_DIR/bin/cli-proxy-api" ./cmd/server)
 
@@ -33,7 +33,7 @@ observability:
     logging-to-file: true
 YAML
 
-(cd "$STATE_DIR/run" && setsid bash -c 'echo $$ >"$0/proxy.pid"; exec "$1" --config "$2"' \
+(cd "$STATE_DIR/run" && HOME="$STATE_DIR/home" setsid bash -c 'echo $$ >"$0/proxy.pid"; exec "$1" --config "$2"' \
   "$STATE_DIR" "$STATE_DIR/bin/cli-proxy-api" "$STATE_DIR/run/config.yaml" \
   >"$STATE_DIR/proxy.out" 2>&1 &)
 
@@ -54,5 +54,6 @@ done
   echo "KEY='$KEY'"
   echo "RUN_DIR='$STATE_DIR/run'"
   echo "AUTH_DIR='$STATE_DIR/run/auths'"
+  echo "HOME_DIR='$STATE_DIR/home'"
 } >"$STATE_DIR/session.env"
 echo "ready: http://127.0.0.1:$PORT  logs $STATE_DIR/proxy.out"

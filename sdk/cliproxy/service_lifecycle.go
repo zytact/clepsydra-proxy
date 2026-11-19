@@ -105,6 +105,7 @@ func (s *Service) Run(ctx context.Context) error {
 		s.coreManager.StartAutoRefresh(ctx, interval)
 		log.Infof("core auth auto-refresh started (interval=%s)", interval)
 		s.startQuotaHistory(ctx)
+		s.startAntigravityCLILogin(ctx)
 	}
 
 	if !homeEnabled {

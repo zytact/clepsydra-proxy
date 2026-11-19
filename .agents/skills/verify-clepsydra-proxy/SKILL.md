@@ -9,6 +9,8 @@ The proxy is a Go HTTP server. Verification builds this checkout, runs it on `12
 
 **Never point this at the user's real accounts.** Do not copy files from `~/.cli-proxy-api` or `/mnt/c/Users/*/.cli-proxy-api`: two proxies refreshing the same OAuth tokens break both. Use `fake-claude.sh` for accounts. Its tokens are placeholders, so upstream rejects every call, which is enough to drive refresh and polling paths for real.
 
+`launch.sh` runs the proxy with `HOME` set to `$STATE_DIR/home`, so the Antigravity CLI login reader never picks up the user's real `~/.gemini` login. `fake-cli-login.sh` writes a fake one there. [features/antigravity-cli-login.md](features/antigravity-cli-login.md) has the details.
+
 The user's live proxies run released binaries; `~/dotfiles/AGENTS.md` says where they run and how they are reached. Swapping their binary needs the user's explicit approval each time. Read-only calls to them use the user's management key; a proxy bans an address after five wrong keys, so never guess one.
 
 All commands run from the repo root. `$P` is `.agents/skills/verify-clepsydra-proxy/scripts`.

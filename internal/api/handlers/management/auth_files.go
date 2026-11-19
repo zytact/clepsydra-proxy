@@ -46,6 +46,7 @@ var (
 	errInvalidAuthFile         = errors.New("invalid auth file")
 	errAuthFileNotFound        = errors.New("auth file not found")
 	errPluginVirtualAuth       = errors.New("plugin virtual auth cannot be modified directly; edit or delete the source auth file")
+	errQuotaOnlyAuth           = errors.New("quota-only credential cannot be modified here")
 	newCodexOAuthService       = func(cfg *config.Config) codexOAuthService { return codex.NewCodexAuth(cfg) }
 	newAntigravityOAuthService = func(cfg *config.Config) antigravityOAuthService { return antigravity.NewAntigravityAuth(cfg, nil) }
 )
@@ -682,6 +683,7 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 		"unavailable":    unavailable,
 		"runtime_only":   runtimeOnly,
 		"source":         "memory",
+		"quota_only":     auth.QuotaOnly,
 		"size":           int64(0),
 	}
 	entry["success"] = auth.Success
@@ -715,6 +717,9 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 			entry["supports_quota"] = true
 			entry["quota_probe"] = probe
 		}
+	}
+	if loginSource := authAttribute(auth, coreauth.AttributeLoginSource); loginSource != "" {
+		entry["login_source"] = loginSource
 	}
 	if email := authEmail(auth); email != "" {
 		entry["email"] = email

@@ -35,7 +35,8 @@ func StartServiceWithPluginHost(cfg *config.Config, configPath string, localPass
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
-		WithLocalManagementPassword(localPassword)
+		WithLocalManagementPassword(localPassword).
+		WithAntigravityCLILogin()
 	if host != nil {
 		builder = builder.WithPluginHost(host)
 	}
@@ -81,7 +82,8 @@ func StartServiceBackgroundWithPluginHost(cfg *config.Config, configPath string,
 	builder := cliproxy.NewBuilder().
 		WithConfig(cfg).
 		WithConfigPath(configPath).
-		WithLocalManagementPassword(localPassword)
+		WithLocalManagementPassword(localPassword).
+		WithAntigravityCLILogin()
 	if host != nil {
 		builder = builder.WithPluginHost(host)
 	}

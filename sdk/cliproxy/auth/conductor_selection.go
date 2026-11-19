@@ -1466,7 +1466,7 @@ func (m *Manager) AvailableProviders() []string {
 	seen := make(map[string]struct{}, len(m.auths))
 	out := make([]string, 0, len(m.auths))
 	for _, auth := range m.auths {
-		if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+		if auth == nil || auth.RoutingExcluded() {
 			continue
 		}
 		provider := canonicalSchedulingProvider(auth.Provider)
@@ -1496,7 +1496,7 @@ func (m *Manager) HasProviderAuth(provider string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, auth := range m.auths {
-		if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+		if auth == nil || auth.RoutingExcluded() {
 			continue
 		}
 		if canonicalSchedulingProvider(auth.Provider) == targetKey {
@@ -1671,7 +1671,7 @@ func (m *Manager) closestCooldownWaitWithAttemptedForRequest(ctx context.Context
 		minWait time.Duration
 	)
 	for _, auth := range m.auths {
-		if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+		if auth == nil || auth.RoutingExcluded() {
 			continue
 		}
 		if pinnedAuthID != "" && auth.ID != pinnedAuthID {
@@ -1773,7 +1773,7 @@ func (m *Manager) retryAllowedForRequest(ctx context.Context, attempt int, provi
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, auth := range m.auths {
-		if auth == nil || auth.Disabled || auth.Status == StatusDisabled {
+		if auth == nil || auth.RoutingExcluded() {
 			continue
 		}
 		if pinnedAuthID != "" && auth.ID != pinnedAuthID {
@@ -2334,7 +2334,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 		affinityCandidates = make([]*Auth, 0, len(m.auths))
 	}
 	for _, candidate := range m.auths {
-		if candidate == nil || canonicalSchedulingProvider(executorKeyFromAuth(candidate)) != targetKey || candidate.Disabled {
+		if candidate == nil || canonicalSchedulingProvider(executorKeyFromAuth(candidate)) != targetKey || candidate.RoutingExcluded() {
 			continue
 		}
 		if !trackPinnedAccounting && pinnedAuthID != "" && candidate.ID != pinnedAuthID {
@@ -2661,7 +2661,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 	if strings.TrimSpace(model) != "" || targetKey == "codex" {
 		m.mu.RLock()
 		for _, candidate := range m.auths {
-			if candidate == nil || canonicalSchedulingProvider(executorKeyFromAuth(candidate)) != targetKey || candidate.Disabled {
+			if candidate == nil || canonicalSchedulingProvider(executorKeyFromAuth(candidate)) != targetKey || candidate.RoutingExcluded() {
 				continue
 			}
 			if !eligibility.allows(candidate) {
@@ -2739,7 +2739,7 @@ func (m *Manager) HasAlternativeTargetForModel(ctx context.Context, providers []
 	defer m.mu.RUnlock()
 	candidates := make([]*Auth, 0, len(m.auths))
 	for _, candidate := range m.auths {
-		if candidate == nil || candidate.Disabled {
+		if candidate == nil || candidate.RoutingExcluded() {
 			continue
 		}
 		candidateID := strings.TrimSpace(candidate.ID)
@@ -2822,7 +2822,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 		affinityCandidates = make([]*Auth, 0, len(m.auths))
 	}
 	for _, candidate := range m.auths {
-		if candidate == nil || candidate.Disabled {
+		if candidate == nil || candidate.RoutingExcluded() {
 			continue
 		}
 		if !trackPinnedAccounting && pinnedAuthID != "" && candidate.ID != pinnedAuthID {
@@ -3026,7 +3026,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	if strings.TrimSpace(model) != "" || hasCodex {
 		m.mu.RLock()
 		for _, candidate := range m.auths {
-			if candidate == nil || candidate.Disabled {
+			if candidate == nil || candidate.RoutingExcluded() {
 				continue
 			}
 			if _, ok := providerSet[canonicalSchedulingProvider(executorKeyFromAuth(candidate))]; !ok {
@@ -3158,7 +3158,7 @@ func (m *Manager) earliestPoolCooldownForModelAt(ctx context.Context, providers 
 	totalCandidates := 0
 	cooling := 0
 	for _, candidate := range m.auths {
-		if candidate == nil || candidate.Disabled {
+		if candidate == nil || candidate.RoutingExcluded() {
 			continue
 		}
 		if excludeZeroWeight && authWeight(candidate) <= 0 {
@@ -3279,7 +3279,7 @@ func (m *Manager) warnLogAuthUnavailable(ctx context.Context, providers []string
 	coolingSummaries := make([]string, 0)
 	totalCandidates := 0
 	for _, candidate := range m.auths {
-		if candidate == nil || candidate.Disabled {
+		if candidate == nil || candidate.RoutingExcluded() {
 			continue
 		}
 		providerKey := executorKeyFromAuth(candidate)

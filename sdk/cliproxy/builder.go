@@ -26,6 +26,8 @@ type Builder struct {
 	// cfg holds the application configuration.
 	cfg *config.Config
 
+	antigravityCLILogin antigravityCLILoginDeps
+
 	// configPath is the path to the configuration file.
 	configPath string
 
@@ -213,6 +215,11 @@ func (b *Builder) WithLocalManagementPassword(password string) *Builder {
 	return b
 }
 
+func (b *Builder) WithAntigravityCLILogin() *Builder {
+	b.antigravityCLILogin = defaultAntigravityCLILoginDeps()
+	return b
+}
+
 // WithPostAuthHook registers a hook to be called after an Auth record is created
 // but before it is persisted to storage.
 func (b *Builder) WithPostAuthHook(hook coreauth.PostAuthHook) *Builder {
@@ -339,6 +346,7 @@ func (b *Builder) Build() (*Service, error) {
 		discoveryManager:      newDiscoveryAdvertiserManager(),
 		appliedRoutingState:   appliedRoutingState,
 		serverOptions:         append([]api.ServerOption(nil), b.serverOptions...),
+		antigravityCLILogin:   b.antigravityCLILogin,
 	}
 	service.proxyPoolPublisher = helps.RegisterProxyPoolPublisher()
 	helps.AdvanceProxyPoolGeneration(service.proxyPoolPublisher, service.cfg)
