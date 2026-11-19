@@ -133,13 +133,13 @@ func newAntigravityCLIAuth(login *antigravity.CLILogin, now time.Time) *coreauth
 		label = login.Email
 	}
 	return &coreauth.Auth{
-		ID:       antigravityCLIAuthID,
-		Provider: "antigravity",
-		Label:    label,
-		Status:   coreauth.StatusActive,
+		ID:        antigravityCLIAuthID,
+		Provider:  "antigravity",
+		Label:     label,
+		Status:    coreauth.StatusActive,
+		QuotaOnly: true,
 		Attributes: map[string]string{
 			coreauth.AttributeRuntimeOnly: "true",
-			coreauth.AttributeQuotaOnly:   "true",
 			coreauth.AttributeLoginSource: antigravityCLILoginSource,
 		},
 		Metadata:  metadata,

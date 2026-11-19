@@ -44,7 +44,7 @@ func TestSyncAntigravityCLILoginTracksTheCLI(t *testing.T) {
 
 	svc.syncAntigravityCLILogin(ctx)
 	auth, ok := svc.coreManager.GetByID(antigravityCLIAuthID)
-	if !ok || !coreauth.IsQuotaOnlyAuth(auth) || auth.Provider != "antigravity" || auth.Metadata["project_id"] != "project-1" || auth.Metadata["email"] != "cli@example.com" {
+	if !ok || !auth.QuotaOnly || auth.Provider != "antigravity" || auth.Metadata["project_id"] != "project-1" || auth.Metadata["email"] != "cli@example.com" {
 		t.Fatalf("registered auth = %+v", auth)
 	}
 	if models := registry.GetGlobalRegistry().GetModelsForClient(antigravityCLIAuthID); len(models) != 0 {

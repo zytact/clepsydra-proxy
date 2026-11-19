@@ -683,7 +683,7 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth, quota authFileQu
 		"unavailable":    unavailable,
 		"runtime_only":   runtimeOnly,
 		"source":         "memory",
-		"quota_only":     coreauth.IsQuotaOnlyAuth(auth),
+		"quota_only":     auth.QuotaOnly,
 		"size":           int64(0),
 	}
 	entry["success"] = auth.Success

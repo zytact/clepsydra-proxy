@@ -30,7 +30,8 @@ func newQuotaOnlyAuth(id string) *Auth {
 		ID:         id,
 		Provider:   "antigravity",
 		Status:     StatusActive,
-		Attributes: map[string]string{AttributeRuntimeOnly: "true", AttributeQuotaOnly: "true"},
+		QuotaOnly:  true,
+		Attributes: map[string]string{AttributeRuntimeOnly: "true"},
 		Metadata: map[string]any{
 			"type":          "antigravity",
 			"access_token":  "token",
@@ -92,5 +93,21 @@ func TestQuotaOnlyAuthIsNotPersisted(t *testing.T) {
 	}
 	if saves := store.saveCount.Load(); saves != 0 {
 		t.Fatalf("store saved a quota-only auth %d times", saves)
+	}
+}
+
+func TestQuotaOnlySurvivesCopies(t *testing.T) {
+	base := newQuotaOnlyAuth("quota-only-copy")
+	updated := base.Clone()
+	updated.Attributes = map[string]string{}
+	updated.QuotaOnly = false
+	for name, copied := range map[string]*Auth{
+		"clone":           base.Clone(),
+		"merged refresh":  MergeRefreshedAuth(base, base, updated),
+		"merged prepared": MergePreparedAuth(base, base, updated),
+	} {
+		if !copied.RoutingExcluded() {
+			t.Errorf("%s lost the quota-only flag", name)
+		}
 	}
 }

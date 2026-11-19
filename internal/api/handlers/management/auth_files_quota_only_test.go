@@ -18,13 +18,13 @@ func newQuotaOnlyHandler(t *testing.T) (*Handler, *coreauth.Manager) {
 	t.Setenv("MANAGEMENT_PASSWORD", "")
 	manager := coreauth.NewManager(nil, nil, nil)
 	record := &coreauth.Auth{
-		ID:       "antigravity-cli",
-		Provider: "antigravity",
-		Label:    "cli@example.com",
-		Status:   coreauth.StatusActive,
+		ID:        "antigravity-cli",
+		Provider:  "antigravity",
+		Label:     "cli@example.com",
+		Status:    coreauth.StatusActive,
+		QuotaOnly: true,
 		Attributes: map[string]string{
 			coreauth.AttributeRuntimeOnly: "true",
-			coreauth.AttributeQuotaOnly:   "true",
 			coreauth.AttributeLoginSource: "antigravity-cli",
 		},
 		Metadata: map[string]any{

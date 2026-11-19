@@ -20,7 +20,6 @@ const (
 	AttributeConfigIndex          = "config_index"
 	AttributeLoginSource          = "login_source"
 	AttributePath                 = "path"
-	AttributeQuotaOnly            = "quota_only"
 	AttributeRuntimeOnly          = "runtime_only"
 	AttributeSource               = "source"
 	AttributeSourceBackend        = "source_backend"
@@ -133,12 +132,8 @@ func authHasOAuthMetadata(auth *Auth) bool {
 	return false
 }
 
-func IsQuotaOnlyAuth(a *Auth) bool {
-	return strings.EqualFold(authAttribute(a, AttributeQuotaOnly), "true")
-}
-
 func (a *Auth) RoutingExcluded() bool {
-	return a.Disabled || a.Status == StatusDisabled || IsQuotaOnlyAuth(a)
+	return a.Disabled || a.Status == StatusDisabled || a.QuotaOnly
 }
 
 func authAttribute(auth *Auth, key string) string {

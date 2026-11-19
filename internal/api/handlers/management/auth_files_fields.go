@@ -69,7 +69,7 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
 		return
 	}
-	if coreauth.IsQuotaOnlyAuth(targetAuth) {
+	if targetAuth.QuotaOnly {
 		c.JSON(http.StatusConflict, gin.H{"error": errQuotaOnlyAuth.Error()})
 		return
 	}
@@ -336,7 +336,7 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": errPluginVirtualAuth.Error()})
 		return
 	}
-	if coreauth.IsQuotaOnlyAuth(targetAuth) {
+	if targetAuth.QuotaOnly {
 		c.JSON(http.StatusConflict, gin.H{"error": errQuotaOnlyAuth.Error()})
 		return
 	}
