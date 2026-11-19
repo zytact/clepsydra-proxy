@@ -1,6 +1,7 @@
 package quotahistory
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -113,5 +114,64 @@ func TestParseCodexUsageMarksTheSilentWindowFullWhenTheReportedOneHasRoom(t *tes
 	}
 	if len(windows) != 2 || windows[1].ID != "weekly" || windows[1].UsedPercent != 100 {
 		t.Fatalf("windows = %+v", windows)
+	}
+}
+
+func TestParseAntigravityQuotaKeepsOneWindowPerBucket(t *testing.T) {
+	body := []byte(`{"groups": [
+		{"displayName": "Gemini", "buckets": [
+			{"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.9825, "resetTime": "2026-11-19T19:35:19Z"},
+			{"bucketId": "gemini-weekly", "window": "weekly", "remainingFraction": 0.995, "resetTime": "2026-11-26T14:35:19Z"},
+			{"bucketId": "gemini-argon-wtu-weekly", "window": "weekly", "remainingFraction": 1}
+		]},
+		{"displayName": "Claude and GPT", "buckets": [
+			{"bucketId": "3p-5h", "window": "5h", "remainingFraction": 1, "resetTime": "2026-11-19T20:38:51Z"},
+			{"bucketId": "3p-weekly", "window": "weekly", "remainingFraction": 1.4},
+			{"bucketId": "3p-monthly", "window": "monthly", "remainingFraction": 0.5, "disabled": true},
+			{"bucketId": "3p-unknown", "window": "5h"}
+		]}
+	]}`)
+
+	windows, errParse := parseAntigravityQuota(body)
+	if errParse != nil {
+		t.Fatal(errParse)
+	}
+	want := []struct {
+		id      string
+		used    float64
+		seconds int64
+		reset   bool
+	}{
+		{"gemini-5h", 1.75, fiveHourSeconds, true},
+		{"gemini-weekly", 0.5, weekSeconds, true},
+		{"gemini-argon-wtu-weekly", 0, weekSeconds, false},
+		{"3p-5h", 0, fiveHourSeconds, true},
+		{"3p-weekly", 0, weekSeconds, false},
+	}
+	if len(windows) != len(want) {
+		t.Fatalf("windows = %+v", windows)
+	}
+	for i, w := range want {
+		got := windows[i]
+		if got.ID != w.id || math.Abs(got.UsedPercent-w.used) > 1e-9 || got.WindowSeconds != w.seconds ||
+			got.Scope != ScopeModel || (got.ResetsAt != nil) != w.reset {
+			t.Fatalf("window %d = %+v, want %+v", i, got, w)
+		}
+	}
+}
+
+func TestParseAntigravityQuotaFallsBackToTopLevelBuckets(t *testing.T) {
+	windows, errParse := parseAntigravityQuota([]byte(`{"buckets": [{"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.25}]}`))
+	if errParse != nil {
+		t.Fatal(errParse)
+	}
+	if len(windows) != 1 || windows[0].ID != "gemini-5h" || windows[0].UsedPercent != 75 {
+		t.Fatalf("windows = %+v", windows)
+	}
+}
+
+func TestParseAntigravityQuotaRejectsEmptySummary(t *testing.T) {
+	if _, errParse := parseAntigravityQuota([]byte(`{"groups": []}`)); errParse == nil {
+		t.Fatal("want an error for a summary without buckets")
 	}
 }

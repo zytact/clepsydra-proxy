@@ -1,6 +1,7 @@
 package quotahistory
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moego/json"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/proxyutil"
 	log "github.com/sirupsen/logrus"
@@ -19,12 +22,16 @@ const (
 	requestTimeout = 20 * time.Second
 	maxBodyBytes   = 1 << 20
 
-	claudeUsageURL = "https://api.anthropic.com/api/oauth/usage"
-	codexUsageURL  = "https://chatgpt.com/backend-api/wham/usage"
+	claudeUsageURL          = "https://api.anthropic.com/api/oauth/usage"
+	codexUsageURL           = "https://chatgpt.com/backend-api/wham/usage"
+	antigravityQuotaPath    = "/v1internal:retrieveUserQuotaSummary"
+	antigravityDailyBaseURL = "https://daily-cloudcode-pa.googleapis.com"
+	antigravityProdBaseURL  = "https://cloudcode-pa.googleapis.com"
 )
 
 type usageSource struct {
-	url     string
+	urls    []string
+	body    func(account *auth.Auth) ([]byte, error)
 	headers func(account *auth.Auth, header http.Header)
 	parse   func(body []byte, now time.Time) ([]Window, error)
 }
@@ -32,7 +39,7 @@ type usageSource struct {
 func defaultSources() map[string]usageSource {
 	return map[string]usageSource{
 		"claude": {
-			url: claudeUsageURL,
+			urls: []string{claudeUsageURL},
 			headers: func(_ *auth.Auth, header http.Header) {
 				header.Set("anthropic-beta", "oauth-2025-04-20")
 				header.Set("User-Agent", "claude-cli/2.1.280 (external, cli)")
@@ -40,7 +47,7 @@ func defaultSources() map[string]usageSource {
 			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseClaudeUsage(body) },
 		},
 		"codex": {
-			url: codexUsageURL,
+			urls: []string{codexUsageURL},
 			headers: func(account *auth.Auth, header http.Header) {
 				header.Set("User-Agent", "codex_cli_rs")
 				if accountID := metadataString(account, "account_id"); accountID != "" {
@@ -49,7 +56,32 @@ func defaultSources() map[string]usageSource {
 			},
 			parse: parseCodexUsage,
 		},
+		"antigravity": {
+			urls: []string{
+				antigravityDailyBaseURL + antigravityQuotaPath,
+				antigravityProdBaseURL + antigravityQuotaPath,
+			},
+			body: antigravityQuotaBody,
+			headers: func(account *auth.Auth, header http.Header) {
+				header.Set("Content-Type", "application/json")
+				header.Set("User-Agent", misc.AntigravityRequestUserAgent(configuredUserAgent(account)))
+			},
+			parse: func(body []byte, _ time.Time) ([]Window, error) { return parseAntigravityQuota(body) },
+		},
 	}
+}
+
+func antigravityQuotaBody(account *auth.Auth) ([]byte, error) {
+	return json.Marshal(struct {
+		Project string `json:"project,omitempty"`
+	}{Project: metadataString(account, "project_id")})
+}
+
+func configuredUserAgent(account *auth.Auth) string {
+	if userAgent := strings.TrimSpace(account.Attributes["user_agent"]); userAgent != "" {
+		return userAgent
+	}
+	return metadataString(account, "user_agent")
 }
 
 type AuthLister interface {
@@ -143,9 +175,35 @@ func (r *Recorder) fetch(ctx context.Context, account *auth.Auth, source usageSo
 	if expiry, ok := account.AccessTokenExpirationTime(); ok && !expiry.IsZero() && !expiry.After(r.now()) {
 		return nil, fmt.Errorf("access token expired")
 	}
+	var payload []byte
+	if source.body != nil {
+		built, errBody := source.body(account)
+		if errBody != nil {
+			return nil, fmt.Errorf("build usage request body: %w", errBody)
+		}
+		payload = built
+	}
+	var errLast error
+	for _, url := range source.urls {
+		body, errFetch := r.fetchURL(ctx, account, source, url, token, payload)
+		if errFetch == nil {
+			return body, nil
+		}
+		errLast = errFetch
+	}
+	return nil, errLast
+}
+
+func (r *Recorder) fetchURL(ctx context.Context, account *auth.Auth, source usageSource, url, token string, payload []byte) ([]byte, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	request, errRequest := http.NewRequestWithContext(requestCtx, http.MethodGet, source.url, nil)
+	method := http.MethodGet
+	var requestBody io.Reader
+	if payload != nil {
+		method = http.MethodPost
+		requestBody = bytes.NewReader(payload)
+	}
+	request, errRequest := http.NewRequestWithContext(requestCtx, method, url, requestBody)
 	if errRequest != nil {
 		return nil, fmt.Errorf("build usage request: %w", errRequest)
 	}
