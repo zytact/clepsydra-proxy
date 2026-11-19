@@ -87,6 +87,7 @@ func TestQuotaOnlyCredentialRejectsMutations(t *testing.T) {
 		"delete":   serveQuotaOnly(h.DeleteAuthFile, http.MethodDelete, "/v8/management/credentials?name=antigravity-cli", ""),
 		"status":   serveQuotaOnly(h.PatchAuthFileStatus, http.MethodPatch, "/v8/management/credentials/status", `{"name":"antigravity-cli","disabled":true}`),
 		"fields":   serveQuotaOnly(h.PatchAuthFileFields, http.MethodPatch, "/v8/management/credentials/fields", `{"name":"antigravity-cli","note":"x"}`),
+		"relogin":  serveQuotaOnly(h.StartOAuthV8, http.MethodGet, "/v8/management/oauth/auth-url?provider=antigravity&name=antigravity-cli", ""),
 	} {
 		if rec.Code != http.StatusConflict {
 			t.Errorf("%s status %d, want %d: %s", name, rec.Code, http.StatusConflict, rec.Body.String())
