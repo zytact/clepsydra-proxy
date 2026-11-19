@@ -49,16 +49,17 @@ Proof: no reading for `claude-alpha.json` after the poll that follows the edit. 
 `quota-stub.py <port> [status] [request-log]` answers `retrieveUserQuotaSummary` with four enabled buckets and one disabled one, or with the given error status, and logs each request's path, body and user agent. `fake-antigravity.sh <name> [--expired] [--base-url URL]` writes a fake Antigravity account with `project_id: fake-project-<name>`. Write the accounts within 30 seconds of launch to catch the first poll.
 
 ```bash
-mkdir -p "$VERIFY_STATE_DIR/stub"   # VERIFY_STATE_DIR defaults to /tmp/verify-clepsydra-proxy
-(setsid python3 -I $P/quota-stub.py 18491 200 "$VERIFY_STATE_DIR/stub/ok.log" >/dev/null 2>&1 & echo $! >"$VERIFY_STATE_DIR/stub/ok.pid")
-(setsid python3 -I $P/quota-stub.py 18492 401 "$VERIFY_STATE_DIR/stub/denied.log" >/dev/null 2>&1 & echo $! >"$VERIFY_STATE_DIR/stub/denied.pid")
+STATE_DIR=${VERIFY_STATE_DIR:-/tmp/verify-clepsydra-proxy}
+mkdir -p "$STATE_DIR/stub"
+(setsid python3 -I $P/quota-stub.py 18491 200 "$STATE_DIR/stub/ok.log" >/dev/null 2>&1 & echo $! >"$STATE_DIR/stub/ok.pid")
+(setsid python3 -I $P/quota-stub.py 18492 401 "$STATE_DIR/stub/denied.log" >/dev/null 2>&1 & echo $! >"$STATE_DIR/stub/denied.pid")
 $P/fake-antigravity.sh ok --base-url http://127.0.0.1:18491
 $P/fake-antigravity.sh denied --base-url http://127.0.0.1:18492
 $P/fake-antigravity.sh public
 # after the next poll
 $P/api.sh GET /quota/history
-cat "$VERIFY_STATE_DIR/stub/"*.log
-kill "$(cat "$VERIFY_STATE_DIR/stub/ok.pid")" "$(cat "$VERIFY_STATE_DIR/stub/denied.pid")"   # before cleanup.sh
+cat "$STATE_DIR/stub/"*.log
+kill "$(cat "$STATE_DIR/stub/ok.pid")" "$(cat "$STATE_DIR/stub/denied.pid")"   # before cleanup.sh
 ```
 
 Proof:
